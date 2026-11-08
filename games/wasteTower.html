@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Tower · GameHub</title>
+<style>
+body{margin:0;background:#dceaf0;color:#223842;font:18px system-ui;overscroll-behavior:none}
+#game{width:100%;height:100vh;height:100dvh}canvas{display:block;touch-action:none}
+#status{position:absolute;top:42%;width:100%;text-align:center;white-space:pre-wrap;pointer-events:none}
+</style></head><body>
+<main id="game" aria-label="Waste Tower"><p id="status" role="status">Loading Waste Tower…</p></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const STEP=1/120,CABLE=150;
+const $=id=>document.getElementById(id);
+function landingSurface(crate,previousBottom,supports,floor){
+ let y=Infinity;
+ if(previousBottom<=floor+.5&&crate.y+crate.h/2>=floor)y=floor;
+ for(const other of supports){
+  const top=other.y-other.h/2;
+  const overlap=crate.x+crate.w/2>other.x-other.w/2&&crate.x-crate.w/2<other.x+other.w/2;
+  if(overlap&&previousBottom<=top+.5&&crate.y+crate.h/2>=top)y=Math.min(y,top);
+ }
+ return Number.isFinite(y)?y:null;
+}
+if(!window.Phaser)$('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+function launch(){
+ class Tower extends Phaser.Scene{
+  preload(){
+   this.failed=[];
+   this.load.on('loaderror',file=>this.failed.push(file.url));
+   for(const [name,path] of Object.entries({background:'background.jpg',crate:'crate.png',crane:'crane.png',heli:'heli.png',plane:'plane.png',shuttle:'shuttle.png'}))
+    this.load.image(name,'../assets/BuildTower/'+path);
+   this.load.image('home','../assets/retBut.png');this.load.image('homePressed','../assets/retBut_clicked.png');
+  }
+  create(){
+   if(this.failed.length){$('status').textContent='These images could not load:\n'+this.failed.join('\n')+'\nOpen the game through GitHub Pages or a local web server.';return;}
+   $('status').hidden=true;
+   const source=this.textures.get('background').getSourceImage();
+   this.background=this.add.image(0,600-source.height,'background').setOrigin(0);
+   this.backgroundBase=600-source.height;
+   this.aircraft=this.add.image(-60,100,'heli').setDisplaySize(100,50).setVisible(false).setDepth(1);
+   this.add.image(0,0,'crane').setOrigin(0).setDepth(2);
+   this.cable=this.add.graphics().setDepth(3);
+   this.mini=this.add.image(5,120,'background').setOrigin(0).setDisplaySize(80,250).setDepth(10);
+   this.miniCrates=this.add.graphics().setDepth(11);
+   this.add.rectangle(83,477,156,42,0xffffc8,.9).setDepth(12);
+   this.heightLabel=this.add.text(14,477,'HEIGHT: 0.0 m',{fontFamily:'system-ui',fontSize:21,color:'#223842'}).setOrigin(0,.5).setDepth(13);
+   this.hint=this.add.text(400,572,'Wait for the crane, then tap to drop the crate',{
+    fontFamily:'system-ui',fontSize:21,color:'#223842',backgroundColor:'#ffffc8',padding:{x:12,y:7}
+   }).setOrigin(.5).setDepth(15);
+   const home=this.add.image(60,60,'home').setDisplaySize(100,100).setDepth(30).setInteractive({useHandCursor:true});
+   home.on('pointerdown',()=>home.setTexture('homePressed'));
+   home.on('pointerout',()=>home.setTexture('home'));
+   home.on('pointerup',()=>{location.href='../index.html';});
+   this.input.on('pointerup',()=>home.setTexture('home'));
+   this.input.on('pointerdown',(pointer,objects)=>{
+    if(objects.includes(home)||pointer.button>0)return;
+    this.drop();
+   });
+   this.input.keyboard.on('keydown-SPACE',event=>{if(!event.repeat)this.drop();});
+   this.input.keyboard.on('keydown-UP',event=>{if(!event.repeat)this.drop();});
+   this.floor=525;this.height=0;this.crates=[];this.accumulator=0;this.air=null;
+   this.createCrate(400,525,'settled',true);this.spawn();
+   this.game.events.on('blur',()=>{this.accumulator=0;});
+  }
+  createCrate(x,y,state,base=false){
+   const w=Phaser.Math.Between(65,85),h=Phaser.Math.Between(50,85);
+   const crate={x,y:base?y-h/2:y,w,h,vx:0,vy:0,state,phase:0,
+    origin:Phaser.Math.Between(300,500),phi:0,angular:Phaser.Math.Between(1,2)*60,flash:0};
+   crate.sprite=this.add.image(crate.x,crate.y,'crate').setDisplaySize(w,h).setDepth(4);
+   this.crates.push(crate);return crate;
+  }
+  spawn(){
+   this.active=this.createCrate(700,800,'hoist');
+   this.hint.setText('The crane is bringing your next crate…');
+  }
+  drop(){
+   const c=this.active;
+   if(!c||c.state!=='swing')return;
+   c.state='fall';this.hint.setText('Watch it land!');
+  }
+  settle(c){
+   c.state='settled';c.vx=c.vy=0;c.phi=0;c.flash=.2;
+   if(this.active===c)this.active=null;
+  }
+  physics(dt){
+   const c=this.active;
+   if(c){
+    if(c.state==='hoist'){
+     if(c.phase===0){c.y=Math.max(145,c.y-600*dt);if(c.y===145)c.phase=1;}
+     else if(c.phase===1){c.x=Math.max(c.origin,c.x-600*dt);if(c.x===c.origin)c.phase=2;}
+     else{c.y=Math.min(220,c.y+300*dt);if(c.y===220){c.state='swing';c.phi=0;this.hint.setText('Tap anywhere to drop the crate!');}}
+    }else if(c.state==='swing'){
+     c.phi+=c.angular*dt;
+     if(c.phi>=30){c.phi=30;c.angular=-Math.abs(c.angular);}
+     if(c.phi<=-30){c.phi=-30;c.angular=Math.abs(c.angular);}
+     const radians=c.phi*Math.PI/180,tangent=c.angular*Math.PI/180*CABLE;
+     c.x=c.origin+CABLE*Math.sin(radians);c.y=70+CABLE*Math.cos(radians);
+     c.vx=tangent*Math.cos(radians);c.vy=-tangent*Math.sin(radians);
+    }else if(c.state==='fall'){
+     const previousBottom=c.y+c.h/2;
+     c.vy+=3600*dt;c.x+=c.vx*dt;c.y+=c.vy*dt;
+     c.phi=Math.sign(c.phi)*Math.max(0,Math.abs(c.phi)-60*dt);
+     const supports=this.crates.filter(other=>other!==c&&other.state==='settled');
+     const surface=c.vy>=0?landingSurface(c,previousBottom,supports,this.floor):null;
+     if(surface!==null){
+      c.y=surface-c.h/2;c.vy=0;
+      if(surface===this.floor)this.settle(c);
+      else{
+       c.vx*=Math.pow(.75,dt*60);
+       if(Math.abs(c.vx)<12)this.settle(c);
+      }
+     }
+     // A missed crate must never prevent the next crane delivery.
+     if(c.x+c.w/2<-100||c.x-c.w/2>900||c.y-c.h/2>700){
+      c.sprite.destroy();this.crates=this.crates.filter(other=>other!==c);this.active=null;
+     }
+    }
+   }
+   const settled=this.crates.filter(crate=>crate.state==='settled');
+   if(settled.length){
+    const top=Math.min(...settled.map(crate=>crate.y));
+    if(top<380){
+     const shift=Math.min(120*dt,380-top);this.floor+=shift;this.height+=shift;
+     settled.forEach(crate=>crate.y+=shift);
+     if(this.air)this.air.y+=shift;
+    }
+   }
+   for(const crate of this.crates)crate.flash=Math.max(0,crate.flash-dt);
+   if(!this.active)this.spawn();
+  }
+  spawnAircraft(first=false){
+   const h=this.height;
+   const key=h<=1200?'heli':h<=1500?Phaser.Utils.Array.GetRandom(['heli','plane']):h<4000?'plane':'shuttle';
+   const right=Math.random()<.5;
+   this.air={x:right?850:-50,y:Phaser.Math.Between(0,first?300:100),speed:(right?-1:1)*(first?Phaser.Math.Between(60,120):60)};
+   this.aircraft.setTexture(key).setDisplaySize(100,50).setFlipX(right).setVisible(true);
+  }
+  render(time){
+   this.background.y=this.backgroundBase+this.height;
+   this.cable.clear().lineStyle(4,0x111111);
+   const c=this.active;
+   if(c&&['hoist','swing'].includes(c.state))this.cable.lineBetween(c.state==='hoist'?c.x:c.origin,70,c.x,c.y);
+   for(const crate of this.crates){
+    crate.sprite.setPosition(crate.x,crate.y).setAngle(-crate.phi).setVisible(crate.y+crate.h/2>=0&&crate.y-crate.h/2<=600);
+    if(crate.flash>0)crate.sprite.setTint(0xffff99);else crate.sprite.clearTint();
+   }
+   if(this.air)this.aircraft.setPosition(this.air.x,this.air.y+Math.sin(time*.002+this.air.x*.01)*5);
+   this.heightLabel.setText('HEIGHT: '+(this.height/10).toFixed(1)+' m');
+   // Fit the growing tower into its existing small overview.
+   const scale=Math.min(.1,230/(this.height+600));
+   this.miniCrates.clear();
+   for(const crate of this.crates){
+    const x=5+crate.x*.1,y=365-(this.floor-(crate.y+crate.h/2))*scale;
+    if(y>=122&&y<=370)this.miniCrates.fillStyle(0xc29153).fillRect(x-crate.w*.05,y-Math.max(3,crate.h*scale),Math.max(3,crate.w*.1),Math.max(3,crate.h*scale));
+   }
+  }
+  update(time,delta){
+   if(!this.crates||document.hidden)return;
+   const dt=Math.min(delta/1000,.05);
+   this.accumulator=Math.min(.075,this.accumulator+dt);
+   while(this.accumulator>=STEP){this.physics(STEP);this.accumulator-=STEP;}
+   if(this.height>400&&!this.air)this.spawnAircraft(true);
+   if(this.air){
+    this.air.x+=this.air.speed*dt;
+    if((this.air.speed>0&&this.air.x>850)||(this.air.speed<0&&this.air.x<-50))this.spawnAircraft();
+   }
+   this.render(time);
+  }
+ }
+ new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#dceaf0',scene:Tower,
+ scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
+}
+</script></body></html>
