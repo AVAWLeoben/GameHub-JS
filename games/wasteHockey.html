@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Hockey · GameHub</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0f2742;color:#fff;font:18px system-ui;overscroll-behavior:none}
+#home{position:fixed;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));width:72px;height:72px;z-index:5;touch-action:manipulation}
+#home img{position:absolute;width:100%;height:100%;object-fit:contain}#home .pressed{opacity:0}#home:active .pressed{opacity:1}
+#game{width:100%;height:100vh;height:100dvh}canvas{touch-action:none;display:block}
+.panel{position:fixed;inset:0;background:#0f2742ed;display:flex;align-items:center;justify-content:center;overflow:auto;padding:88px 14px 20px}
+.panel[hidden]{display:none}.box{max-width:640px;width:100%;text-align:center}h1{color:#ffda40;margin:0 0 12px}
+fieldset{border:0;margin:8px 0;padding:0}legend{margin:auto auto 8px}button{font:inherit;color:white;background:#265e89;border:2px solid #b9dfef;border-radius:12px;min-height:48px;min-width:48px;padding:8px 14px;touch-action:manipulation;margin:3px}
+button[aria-pressed="true"]{border:3px solid #fff;background:#36805b}button:disabled{opacity:.25}.colors button{width:48px;height:48px;padding:0;border-radius:50%}.colors button[aria-pressed="true"]::after{content:"✓";color:white;text-shadow:0 1px 3px black}
+#play{background:#a64d25;min-width:220px;margin-top:12px}#status{text-align:center;padding:100px 20px}
+@media(max-height:650px){.panel{padding-top:80px;align-items:flex-start}.box{max-width:760px}fieldset{margin:4px 0}h1{font-size:26px}.colors{display:inline-block;width:49%}.colors button{width:44px;height:44px;min-width:44px;min-height:44px;margin:1px}}
+</style>
+</head>
+<body>
+<a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
+<div id="game"><p id="status">Loading Waste Hockey…</p></div>
+<section id="menu" class="panel" hidden><div class="box">
+<h1>WASTE HOCKEY</h1>
+<fieldset id="mode"><legend>How many players?</legend></fieldset>
+<fieldset id="difficulty"><legend>How quick is the computer?</legend></fieldset>
+<fieldset id="duration"><legend>How long?</legend></fieldset>
+<fieldset id="color0" class="colors"><legend>Player 1 colour</legend></fieldset>
+<fieldset id="color1" class="colors"><legend>Player 2 / computer colour</legend></fieldset>
+<button id="play">PLAY!</button>
+</div></section>
+<section id="result" class="panel" hidden><div class="box"><h1>TIME IS UP!</h1><h2 id="finalscore"></h2><h2 id="winner"></h2><button id="again">Play again</button><button id="settings">Change mode</button></div></section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const palette = ['#f0505c','#ff973e','#ffd840','#49c977','#43d5ce','#489af5','#a777ed','#f577bc'];
+const names = ['Red','Orange','Yellow','Green','Turquoise','Blue','Purple','Pink'];
+const levels = [{speed:205,reaction:.28,shot:300},{speed:320,reaction:.16,shot:460},{speed:530,reaction:.04,shot:650}];
+const options = {mode:2,difficulty:1,duration:60,colors:[2,5]};
+const el = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+let scene;
+function choices(id, values, selected, change) {
+  const field = el(id);
+  field.querySelectorAll('button').forEach(button => button.remove());
+  for (const [value,label] of values) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.setAttribute('aria-pressed',String(value === selected));
+    button.onclick = () => { change(value); refresh(); };
+    field.append(button);
+  }
+}
+function refresh() {
+  choices('mode',[[1,'1 player'],[2,'2 players']],options.mode,v => options.mode=v);
+  choices('difficulty',[[1,'★ Easy'],[2,'★★ Medium'],[3,'★★★ Fast']],options.difficulty,v => options.difficulty=v);
+  el('difficulty').hidden = options.mode !== 1;
+  choices('duration',[[60,'1 minute'],[120,'2 minutes'],[0,'Endless']],options.duration,v => options.duration=v);
+  for (let player=0;player<2;player++) {
+    choices('color'+player,palette.map((_,i)=>[i,'']),options.colors[player],v=>options.colors[player]=v);
+    el('color'+player).querySelectorAll('button').forEach((button,i)=>{
+      button.style.background=palette[i];
+      button.setAttribute('aria-label',names[i]);
+      button.disabled=options.colors[1-player]===i;
+    });
+  }
+}
+if (!window.Phaser) el('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+
+function launch() {
+  class Hockey extends Phaser.Scene {
+    preload() {
+      for (const name of ['field','pusher1','pusher2','puck']) this.load.image(name,'../assets/wastehockey/'+name+'.png');
+    }
+    create() {
+      scene=this;
+      el('status').hidden=true;
+      if(this.textures.exists('field')) this.add.image(400,96,'field').setOrigin(.5,0).setDisplaySize(800,800*673/1280);
+      else {
+        this.add.rectangle(400,308,750,384,0xf0fbff).setStrokeStyle(5,0x419dee);
+        this.add.rectangle(400,308,3,384,0xee535e);
+        this.add.circle(400,308,65).setStrokeStyle(3,0xee535e);
+      }
+      this.paddles=[0,1].map(i=>{
+        // Recolour grayscale pixels once, preserving the original artwork's shading.
+        const key='pusher'+(i+1);
+        if(this.textures.exists(key)) {
+          const source=this.textures.get(key).getSourceImage();
+          const texture=this.textures.createCanvas('gray'+i,source.width,source.height);
+          const ctx=texture.context;
+          ctx.drawImage(source,0,0);
+          const pixels=ctx.getImageData(0,0,source.width,source.height);
+          for(let n=0;n<pixels.data.length;n+=4) {
+            const light=Math.min(255,.299*pixels.data[n]+.587*pixels.data[n+1]+.114*pixels.data[n+2]+(i?85:24));
+            pixels.data[n]=pixels.data[n+1]=pixels.data[n+2]=light;
+          }
+          ctx.putImageData(pixels,0,0);texture.refresh();
+        }
+        const sprite=this.textures.exists('gray'+i)?this.add.image(0,0,'gray'+i).setDisplaySize(80,80):this.add.circle(0,0,36,0xffffff).setStrokeStyle(3,0xffffff);
+        return {x:i?625:175,y:308,tx:i?625:175,ty:308,vx:0,vy:0,sprite,owner:null};
+      });
+      this.puck={x:400,y:308,vx:0,vy:0};
+      this.puckSprite=this.textures.exists('puck')?this.add.image(400,308,'puck').setDisplaySize(44,44):this.add.circle(400,308,20,0xee535e);
+      this.hud=this.label(450,48,'',28);
+      this.hint=this.label(400,553,'',20);
+      this.goalText=this.label(400,300,'',44).setBackgroundColor('#143556').setPadding(15).setVisible(false);
+      this.state='menu';
+      this.input.addPointer(3);
+      this.input.on('pointerdown',p=>{
+        if(this.state!=='playing'||p.y<116||p.y>500||p.x<25||p.x>775||p.button>0)return;
+        const i=p.x<400?0:1;
+        if((options.mode===1&&i===1)||this.paddles[i].owner!==null)return;
+        this.paddles[i].owner=p.id;this.target(i,p.x,p.y);
+      });
+      this.input.on('pointermove',p=>{
+        if(!['playing','goal'].includes(this.state))return;
+        this.paddles.forEach((pad,i)=>{if(pad.owner===p.id)this.target(i,p.x,p.y);});
+      });
+      const release=p=>this.paddles.forEach(pad=>{if(pad.owner===p.id)pad.owner=null;});
+      this.input.on('pointerup',release);this.input.on('pointerupoutside',release);
+      const clear=()=>this.paddles.forEach(p=>{p.owner=null;p.tx=p.x;p.ty=p.y;});
+      window.addEventListener('blur',clear);
+      document.addEventListener('visibilitychange',clear);
+      this.game.canvas.addEventListener('touchcancel',clear);
+      this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
+      el('play').onclick=()=>this.startMatch();
+      el('again').onclick=()=>this.startMatch();
+      el('settings').onclick=()=>{el('result').hidden=true;el('menu').hidden=false;this.state='menu';};
+      refresh();el('menu').hidden=false;
+    }
+    label(x,y,text,size) {
+      return this.add.text(x,y,text,{fontFamily:'system-ui',fontSize:size,color:'#ffffff',align:'center'}).setOrigin(.5);
+    }
+    target(i,x,y) {
+      const p=this.paddles[i];
+      p.tx=clamp(x,i?441:64,i?736:359);p.ty=clamp(y,154,462);
+    }
+    serve(direction) {
+      Object.assign(this.puck,{x:400,y:308,vx:0,vy:0});
+      this.serveTime=.65;this.direction=direction;this.idle=0;this.reaction=10;
+    }
+    startMatch() {
+      el('menu').hidden=true;el('result').hidden=true;
+      this.score=[0,0];this.remaining=options.duration;this.state='playing';
+      this.goalText.setVisible(false);
+      this.paddles.forEach((p,i)=>{
+        Object.assign(p,{x:i?625:175,y:308,tx:i?625:175,ty:308,vx:0,vy:0,owner:null});
+        const color=parseInt(palette[options.colors[i]].slice(1),16);
+        if(p.sprite.setTint)p.sprite.setTint(color);else p.sprite.setFillStyle(color);
+      });
+      this.serve(Math.random()<.5?-1:1);
+      this.hint.setText(options.mode===1?'Hold a finger on the left half to move':'Each player uses one finger on their own half');
+    }
+    predict(x) {
+      const p=this.puck;
+      if(p.vx<30||x<=p.x)return p.y;
+      const t=clamp((x-p.x)/p.vx,0,1.6),span=344;
+      const phase=((p.y+p.vy*t-136)%(span*2)+span*2)%(span*2);
+      return 136+(phase<=span?phase:2*span-phase);
+    }
+    ai(dt) {
+      this.reaction+=dt;
+      if(this.reaction<levels[options.difficulty-1].reaction)return;
+      this.reaction=0;
+      const p=this.puck,side=(this.score[0]+this.score[1])%2===0?1:-1;
+      let x,y;
+      if(options.difficulty===1) {
+        if(p.x>520&&Math.abs(p.vx)<175&&p.x<700){x=p.x+33;y=p.y+clamp(p.y-308,-90,90)*.12;}
+        else{x=675;y=308+side*119+clamp(p.y-308,-110,110)*.12;}
+      } else if(options.difficulty===2) {
+        if(p.x>=470&&p.vx<230){x=p.x+40;y=p.y+clamp(p.y-308,-110,110)*.1;}
+        else if(p.vx>35){x=667;y=308+side*60+(this.predict(x)-308)*.58;}
+        else{x=660;y=308+(p.y-308)*.56;}
+      } else {
+        if(p.x>680&&this.paddles[1].x<p.x+25){x=610;y=308;}
+        else if(p.x>=418){x=p.x+29;y=p.y+clamp(p.y-308,-110,110)*.14;if(p.x>715){x=736;y=p.y+(p.y<308?34:-34);}}
+        else if(p.vx>25){x=630;y=this.predict(x);}
+        else{x=642;y=308+(p.y-308)*.42;}
+      }
+      this.target(1,x,y);
+    }
+    collide(pad,i) {
+      const p=this.puck,dx=p.x-pad.x,dy=p.y-pad.y,d=Math.hypot(dx,dy);
+      if(d>=56)return;
+      const nx=d>1e-6?dx/d:(i?-1:1),ny=d>1e-6?dy/d:0;
+      p.x=pad.x+nx*56.01;p.y=pad.y+ny*56.01;
+      const approach=(p.vx-pad.vx)*nx+(p.vy-pad.vy)*ny;
+      if(approach<0){
+        p.vx-=1.88*approach*nx;p.vy-=1.88*approach*ny;
+        const speed=Math.hypot(p.vx,p.vy),limit=options.mode===1&&i===1?levels[options.difficulty-1].shot:1050;
+        if(speed>limit){p.vx*=limit/speed;p.vy*=limit/speed;}
+      }
+    }
+    goal(i) {
+      this.score[i]++;this.state='goal';this.goalTime=1.6;this.scorer=i;
+      this.puck.vx=this.puck.vy=0;
+      this.goalText.setText('GOAL!\n'+(options.mode===1?(i?'Computer':'You'):'Player '+(i+1))+' scores!').setVisible(true);
+      for(let n=0;n<65;n++){
+        const dot=this.add.circle(400,250,Phaser.Math.Between(3,6),parseInt(palette[n%8].slice(1),16));
+        this.tweens.add({targets:dot,x:Phaser.Math.Between(100,700),y:Phaser.Math.Between(120,550),alpha:0,duration:1400,onComplete:()=>dot.destroy()});
+      }
+    }
+    walls() {
+      const p=this.puck;
+      if(p.y<136){p.y=136;p.vy=Math.abs(p.vy)*.95;}
+      if(p.y>480){p.y=480;p.vy=-Math.abs(p.vy)*.95;}
+      const open=Math.abs(p.y-308)<41;
+      if(p.x<45){
+        if(open){if(p.x<5)this.goal(1);}
+        else{p.x=45;p.vx=Math.abs(p.vx)*.95;}
+      } else if(p.x>755){
+        if(open){if(p.x>795)this.goal(0);}
+        else{p.x=755;p.vx=-Math.abs(p.vx)*.95;}
+      }
+    }
+    finish() {
+      this.state='final';this.paddles.forEach(p=>p.owner=null);
+      el('finalscore').textContent=this.score.join(' : ');
+      el('winner').textContent=this.score[0]===this.score[1]?"It's a draw!":
+        options.mode===1?(this.score[0]>this.score[1]?'You win!':'Computer wins!'):
+        'Player '+(this.score[0]>this.score[1]?1:2)+' wins!';
+      el('result').hidden=false;
+    }
+    update(time,delta) {
+      if(!this.paddles||!this.score||document.hidden)return;
+      const dt=Math.min(delta/1000,.05);
+      if(this.state==='goal'){
+        this.goalTime-=dt;
+        if(this.goalTime<=0){this.goalText.setVisible(false);this.state='playing';this.serve(this.scorer===0?-1:1);}
+      } else if(this.state==='playing'){
+        if(options.duration){this.remaining-=dt;if(this.remaining<=0){this.finish();return;}}
+        const mappings=[['A','D','W','S'],['LEFT','RIGHT','UP','DOWN']];
+        this.paddles.forEach((p,i)=>{
+          if(p.owner!==null||(options.mode===1&&i===1))return;
+          const [l,r,u,d]=mappings[i],dx=Number(this.keys[r].isDown)-Number(this.keys[l].isDown),dy=Number(this.keys[d].isDown)-Number(this.keys[u].isDown);
+          const length=Math.hypot(dx,dy);
+          if(length)this.target(i,p.x+dx/length*900*dt,p.y+dy/length*900*dt);
+        });
+        if(options.mode===1)this.ai(dt);
+        const steps=Math.ceil(dt*240),h=steps?dt/steps:0;
+        for(let step=0;step<steps&&this.state==='playing';step++){
+          this.paddles.forEach((p,i)=>{
+            const dx=p.tx-p.x,dy=p.ty-p.y,d=Math.hypot(dx,dy);
+            const speed=options.mode===1&&i===1?levels[options.difficulty-1].speed:2450;
+            const f=d?Math.min(1,speed*h/d):0;
+            p.vx=dx*f/h;p.vy=dy*f/h;p.x+=dx*f;p.y+=dy*f;
+          });
+          if(this.serveTime>0){
+            this.serveTime-=h;
+            if(this.serveTime<=0){const angle=(Math.random()-.5)*.6;this.puck.vx=365*this.direction*Math.cos(angle);this.puck.vy=365*Math.sin(angle);}
+            continue;
+          }
+          const p=this.puck;
+          p.x+=p.vx*h;p.y+=p.vy*h;
+          const friction=Math.pow(.997,h*60);p.vx*=friction;p.vy*=friction;
+          this.paddles.forEach((pad,i)=>this.collide(pad,i));this.walls();
+        }
+        if(this.serveTime<=0&&this.state==='playing'){
+          const p=this.puck;
+          this.idle=Math.abs(p.vx)<34?this.idle+dt:0;
+          const wait=p.x>680?2.5:(p.x<57||p.x>743?1.8:4.5);
+          if(this.idle>=wait){this.idle=0;p.vx=p.x>=400?-300:300;p.vy=(Math.random()-.5)*190;}
+        }
+      }
+      this.paddles.forEach(p=>p.sprite.setPosition(p.x,p.y));
+      this.puckSprite.setPosition(this.puck.x,this.puck.y);
+      const seconds=Math.max(0,Math.ceil(this.remaining));
+      const timer=options.duration?Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0'):'Endless';
+      this.hud.setText((options.mode===1?'You':'P1')+'   '+this.score[0]+' : '+this.score[1]+'   '+(options.mode===1?'CPU':'P2')+'     '+timer);
+    }
+  }
+  new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#0f2742',
+    scene:Hockey,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
+}
+</script>
+</body>
+</html>

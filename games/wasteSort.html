@@ -6,15 +6,29 @@
 <title>Waste Sort · GameHub</title>
 <style>
   body { margin: 0; background: #203636; color: white; font: 16px system-ui; }
-  header { padding: 10px 16px; }
+  header {
+    height: 96px;
+    padding: 4px max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left));
+  }
+  .home-button { display: block; position: relative; width: 88px; height: 88px;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .home-button img { position: absolute; inset: 0; width: 88px; height: 88px; object-fit: contain; }
+  .home-button .pressed { opacity: 0; }
+  .home-button:active .pressed { opacity: 1; }
+  .home-button:focus-visible { outline: 3px solid #ffd45c; border-radius: 10px; }
   a { color: #c1f4ff; }
-  #game { width: 100%; height: calc(100vh - 44px); height: calc(100dvh - 44px); }
+  #game { width: 100%; height: calc(100vh - 96px); height: calc(100dvh - 96px); }
   canvas { display: block; touch-action: none; }
   #status { text-align: center; }
 </style>
 </head>
 <body>
-<header><a href="../index.html">← Game Menu</a></header>
+<header>
+  <a class="home-button" href="../index.html" aria-label="Return to Game Menu">
+    <img src="../assets/retBut.png" alt="">
+    <img class="pressed" src="../assets/retBut_clicked.png" alt="" aria-hidden="true">
+  </a>
+</header>
 <main id="game" aria-label="Waste Sort"><p id="status" role="status">Loading Waste Sort…</p></main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>

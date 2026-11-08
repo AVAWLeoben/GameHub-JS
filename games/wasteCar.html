@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Car · GameHub</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#163641;color:white;font:18px system-ui;overscroll-behavior:none}
+#game{height:100vh;height:100dvh;width:100%}canvas{display:block;touch-action:none}
+#home{position:fixed;top:max(6px,env(safe-area-inset-top));left:max(6px,env(safe-area-inset-left));width:72px;height:72px;z-index:5;touch-action:manipulation}
+#home img{position:absolute;width:100%;height:100%;object-fit:contain}#home .pressed{opacity:0}#home:active .pressed{opacity:1}
+#pause{position:fixed;right:12px;top:12px;z-index:4}
+button{font:inherit;min-height:52px;padding:12px 24px;border:2px solid #f8f4db;border-radius:12px;background:#348153;color:white;touch-action:manipulation}
+.panel{position:fixed;inset:0;background:#102236c9;display:flex;align-items:center;justify-content:center;padding:88px 16px 16px;overflow:auto}
+.panel[hidden],button[hidden]{display:none}.box{text-align:center;background:#22555e;border:3px solid #fbe186;border-radius:20px;padding:24px;max-width:540px}
+h1{color:#ffdd4f}#status{padding:100px 20px;text-align:center;white-space:pre-wrap}
+#restart{background:#5b84ad;margin:8px}#hint{color:#d997ff}
+@media(max-height:450px){.panel{align-items:flex-start}.box{padding:12px}h1{margin:8px}}
+</style></head><body>
+<a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
+<button id="pause" hidden aria-label="Pause game">Ⅱ</button>
+<div id="game"><p id="status" role="status">Loading Waste Car…</p></div>
+<section id="panel" class="panel" hidden><div class="box">
+<h1 id="title">WASTE CAR</h1><p id="description">Drive the truck. Collect every bin!</p>
+<p id="hint">Hold a finger to drive toward it. Release to brake.<br>Follow the purple arrow!</p>
+<button id="action">Start driving</button><button id="restart" hidden>Restart</button>
+</div></section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const el=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const approach=(v,target,step)=>v<target?Math.min(target,v+step):Math.max(target,v-step);
+const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const colors=[0xffde48,0x4fe38d,0xc454ff,0xff815c];
+if(!window.Phaser)el('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+
+class TrafficMap {
+  constructor(data) {
+    this.edges=[];this.connections=new Map();
+    for(const entry of data.edges){
+      const points=entry.points.map(([x,y])=>({x:Number(x),y:Number(y)}));
+      const cum=[0];
+      for(let i=1;i<points.length;i++)cum.push(cum[i-1]+distance(points[i-1],points[i]));
+      const length=cum[cum.length-1];
+      if(length<2)continue;
+      const edge={a:Number(entry.a),b:Number(entry.b),points,cum,length},id=this.edges.length;
+      this.edges.push(edge);
+      for(const node of [edge.a,edge.b]){
+        if(!this.connections.has(node))this.connections.set(node,[]);
+        this.connections.get(node).push(id);
+      }
+    }
+    if(!this.edges.length)throw new Error('The traffic route graph is empty.');
+  }
+  sample(id,progress,direction){
+    const e=this.edges[id],s=clamp(progress,0,e.length);
+    let lo=0,hi=e.cum.length-1;
+    while(lo+1<hi){const mid=(lo+hi)>>1;if(e.cum[mid]<=s)lo=mid;else hi=mid;}
+    const i=Math.min(lo,e.points.length-2),a=e.points[i],b=e.points[i+1];
+    const t=clamp((s-e.cum[i])/Math.max(.0001,e.cum[i+1]-e.cum[i]),0,1);
+    return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,heading:Math.atan2((b.y-a.y)*direction,(b.x-a.x)*direction)};
+  }
+  continuation(node,last,angle){
+    const allowed=this.connections.get(node).filter(id=>id!==last);
+    if(!allowed.length)return {id:last,direction:this.edges[last].a===node?1:-1};
+    const choices=allowed.map(id=>{
+      const e=this.edges[id],direction=e.a===node?1:-1;
+      const p=(direction===1?0:e.length)+direction*Math.min(12,e.length*.6);
+      const heading=this.sample(id,p,direction).heading;
+      return {id,direction,weight:.5+3.2*Math.max(0,Math.cos(heading-angle))**2};
+    });
+    let pick=Math.random()*choices.reduce((sum,c)=>sum+c.weight,0);
+    return choices.find(c=>(pick-=c.weight)<=0)||choices[choices.length-1];
+  }
+}
+
+function launch(){
+  class Driving extends Phaser.Scene {
+    preload(){
+      this.failed=[];
+      this.load.on('loaderror',file=>this.failed.push(file.url));
+      for(const [key,path] of Object.entries({
+        road:'road.png',truck:'truck.png',car1:'car1.png',car2:'car2.png',car3:'car3.png',
+        full:'wasteBin_full.png',empty:'wasteBin_empty.png'
+      }))this.load.image(key,'../assets/'+path);
+      this.load.json('mapdata','../assets/wasteCar/mapdata.json');
+    }
+    create(){
+      try{
+        if(!this.textures.exists('road')||!this.cache.json.exists('mapdata'))throw new Error('The road image or mapdata.json could not load.');
+        const data=this.cache.json.get('mapdata');
+        this.network=new TrafficMap(data.traffic);
+        this.binPositions=data.bins.map(([x,y])=>({x:Number(x),y:Number(y)}));
+        if(!this.binPositions.length||this.binPositions.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)))throw new Error('Invalid bin positions in mapdata.json.');
+        const image=this.textures.get('road').getSourceImage();
+        this.worldW=image.width*2;this.worldH=image.height*2;
+        this.add.image(0,0,'road').setOrigin(0).setScale(2);
+        this.worldObjects=this.add.group();
+        this.ui=this.add.container(0,0);
+        this.ui.add(this.add.rectangle(400,38,800,76,0x163641));
+        this.hud=this.add.text(400,38,'',{fontFamily:'system-ui',fontSize:28,color:'#ffe862'}).setOrigin(.5);
+        this.ui.add(this.hud);
+        this.bump=this.add.text(400,110,'BUMP!',{fontFamily:'system-ui',fontSize:30,color:'#ffe675'}).setOrigin(.5).setVisible(false);
+        this.ui.add(this.bump);
+        this.arrow=this.add.graphics();this.ui.add(this.arrow);
+        this.worldCamera=this.cameras.main;
+        this.worldCamera.setBounds(0,0,this.worldW,this.worldH);
+        this.worldCamera.ignore(this.ui);
+        this.uiCamera=this.cameras.add(0,0,800,600);
+        this.uiCamera.ignore(this.children.list.filter(object=>object!==this.ui));
+        this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,ESC,ENTER,R');
+        this.input.on('pointerdown',p=>{if(this.phase==='playing'&&this.pointer===null&&p.y>78&&p.button<=0)this.pointer=p;});
+        this.input.on('pointerup',p=>{if(this.pointer===p)this.pointer=null;});
+        this.input.on('pointerupoutside',p=>{if(this.pointer===p)this.pointer=null;});
+        const interrupt=()=>{this.pointer=null;if(this.phase==='playing')this.pauseGame();};
+        window.addEventListener('blur',interrupt);
+        document.addEventListener('visibilitychange',()=>{if(document.hidden)interrupt();});
+        this.game.canvas.addEventListener('touchcancel',interrupt);
+        el('pause').onclick=()=>this.pauseGame();
+        el('restart').onclick=()=>this.reset();
+        el('action').onclick=()=>{if(this.phase==='paused')this.resume();else this.reset();};
+        this.input.keyboard.on('keydown-ESC',()=>{if(this.phase==='playing')this.pauseGame();else if(this.phase==='paused')this.resume();});
+        this.input.keyboard.on('keydown-ENTER',()=>{if(this.phase==='paused')this.resume();else if(['menu','finished'].includes(this.phase))this.reset();});
+        this.input.keyboard.on('keydown-R',()=>{if(this.phase==='playing')this.reset();});
+        this.best=null;this.reset();this.phase='menu';el('pause').hidden=true;
+        el('status').hidden=true;el('panel').hidden=false;
+      }catch(error){
+        el('status').textContent=error.message+'\n'+this.failed.join('\n')+'\nOpen this game through GitHub Pages or a local web server.';
+        this.phase='error';
+      }
+    }
+    worldSprite(x,y,key,w,h,color=0xe55342){
+      let sprite;
+      if(this.textures.exists(key)){
+        const source=this.textures.get(key).getSourceImage();
+        sprite=this.add.image(x,y,key).setScale(Math.min(w/source.width,h/source.height));
+      }else sprite=this.add.rectangle(x,y,w,h,color);
+      this.worldObjects.add(sprite);this.uiCamera.ignore(sprite);return sprite;
+    }
+    reset(){
+      this.tweens.killAll();this.worldObjects.clear(true,true);
+      this.phase='playing';this.elapsed=0;this.collected=0;this.pointer=null;
+      this.truck={x:2220,y:1500,vx:0,vy:0,heading:0};
+      this.zoom=.97;this.camX=this.truck.x;this.camY=this.truck.y;
+      this.bins=this.binPositions.map(pos=>{
+        const sprite=this.worldSprite(pos.x,pos.y,'full',40,60,0xe6c04b);
+        if(this.textures.exists('full'))sprite.setScale(.66);
+        const ring=this.add.circle(pos.x,pos.y,35).setStrokeStyle(3,0xf3d354);
+        this.worldObjects.add(ring);this.uiCamera.ignore(ring);
+        return {...pos,full:true,sprite,ring};
+      });
+      this.cars=[];
+      for(let i=0;i<10;i++){
+        for(let attempt=0;attempt<70;attempt++){
+          const id=Phaser.Math.Between(0,this.network.edges.length-1),edge=this.network.edges[id];
+          const progress=Math.random()*edge.length,direction=Math.random()<.5?-1:1;
+          const pos=this.network.sample(id,progress,direction);
+          if(distance(pos,this.truck)<240||this.cars.some(c=>distance(pos,c)<155))continue;
+          const top=104+Math.random()*60;
+          this.cars.push({...pos,id,progress,direction,top,speed:top,stun:0,
+            sprite:this.worldSprite(pos.x,pos.y,'car'+Phaser.Math.Between(1,3),110,51)});
+          break;
+        }
+      }
+      this.truck.sprite=this.worldSprite(this.truck.x,this.truck.y,'truck',172,60);
+      el('panel').hidden=true;el('pause').hidden=false;this.bump.setVisible(false);
+      this.updateCamera(1);
+    }
+    pauseGame(){
+      if(this.phase!=='playing')return;
+      this.phase='paused';this.pointer=null;this.tweens.pauseAll();
+      this.showPanel('PAUSED','Take your time!','Keep driving',true);
+    }
+    resume(){this.phase='playing';this.pointer=null;this.tweens.resumeAll();el('panel').hidden=true;el('pause').hidden=false;}
+    showPanel(title,description,action,restart=false){
+      el('title').textContent=title;el('description').textContent=description;
+      el('hint').hidden=true;el('action').textContent=action;el('restart').hidden=!restart;
+      el('panel').hidden=false;el('pause').hidden=true;
+    }
+    moveTraffic(car,dt){
+      car.stun=Math.max(0,car.stun-dt);
+      car.speed=approach(car.speed,car.top*(car.stun?.22:1),160*dt);
+      let remaining=car.speed*dt;
+      for(let i=0;i<6&&remaining>.001;i++){
+        const edge=this.network.edges[car.id],available=car.direction===1?edge.length-car.progress:car.progress;
+        const moved=Math.min(remaining,Math.max(0,available));
+        car.progress+=moved*car.direction;remaining-=moved;
+        if(available-moved<=.001){
+          const node=car.direction===1?edge.b:edge.a;
+          const heading=this.network.sample(car.id,car.progress,car.direction).heading;
+          const next=this.network.continuation(node,car.id,heading);
+          car.id=next.id;car.direction=next.direction;
+          car.progress=car.direction===1?0:this.network.edges[car.id].length;
+        }
+      }
+      Object.assign(car,this.network.sample(car.id,car.progress,car.direction));
+      car.sprite.setPosition(car.x,car.y).setRotation(car.heading);
+    }
+    moveTruck(dt){
+      const t=this.truck;
+      let dx=0,dy=0,accelerating=false;
+      if(this.pointer){
+        const screen=this.screenPoint(t);
+        dx=this.pointer.x-screen.x;dy=this.pointer.y-screen.y;
+        accelerating=Math.hypot(dx,dy)>27;
+      }else{
+        dx=Number(this.keys.D.isDown||this.keys.RIGHT.isDown)-Number(this.keys.A.isDown||this.keys.LEFT.isDown);
+        dy=Number(this.keys.S.isDown||this.keys.DOWN.isDown)-Number(this.keys.W.isDown||this.keys.UP.isDown);
+        accelerating=!!(dx||dy);
+      }
+      if(accelerating)t.heading=Math.atan2(dy,dx);
+      if(this.keys.SPACE.isDown)accelerating=false;
+      const targetX=accelerating?450*Math.cos(t.heading):0,targetY=accelerating?450*Math.sin(t.heading):0;
+      const vx=targetX-t.vx,vy=targetY-t.vy,length=Math.hypot(vx,vy);
+      const amount=Math.min((accelerating?415:570)*dt,length);
+      if(length){t.vx+=vx/length*amount;t.vy+=vy/length*amount;}
+      const x=t.x+t.vx*dt,y=t.y+t.vy*dt;
+      t.x=clamp(x,25,this.worldW-25);t.y=clamp(y,25,this.worldH-25);
+      if(t.x!==x)t.vx=0;if(t.y!==y)t.vy=0;
+    }
+    collisions(){
+      const t=this.truck;
+      for(const car of this.cars){
+        const d=distance(t,car);
+        if(d>92||car.stun>.28)continue;
+        const nx=d>.001?(t.x-car.x)/d:1,ny=d>.001?(t.y-car.y)/d:0;
+        const relative=Math.hypot(t.vx-Math.cos(car.heading)*car.speed,t.vy-Math.sin(car.heading)*car.speed);
+        if(relative<45)continue;
+        t.x=clamp(t.x+nx*(94-d),25,this.worldW-25);t.y=clamp(t.y+ny*(94-d),25,this.worldH-25);
+        const inward=Math.min(0,t.vx*nx+t.vy*ny);
+        t.vx=(t.vx-1.35*inward*nx)*.65;t.vy=(t.vy-1.35*inward*ny)*.65;
+        car.stun=.8;this.bumpTime=.6;
+        this.worldCamera.shake(180,.004);this.emit((t.x+car.x)/2,(t.y+car.y)/2,13);
+      }
+    }
+    emit(x,y,count){
+      for(let i=0;i<count;i++){
+        const dot=this.add.circle(x,y,4,colors[i%colors.length]);
+        this.worldObjects.add(dot);this.uiCamera.ignore(dot);
+        this.tweens.add({targets:dot,x:x+Phaser.Math.Between(-130,130),y:y+Phaser.Math.Between(-130,130),
+          alpha:0,duration:700,onComplete:()=>dot.destroy()});
+      }
+    }
+    collect(){
+      for(const bin of this.bins){
+        if(!bin.full||distance(bin,this.truck)>142)continue;
+        bin.full=false;bin.ring.setVisible(false);this.collected++;
+        if(this.textures.exists('empty'))bin.sprite.setTexture('empty').setScale(.66);
+        else bin.sprite.setAlpha(.4);
+        this.emit(bin.x,bin.y,24);
+      }
+      if(this.collected===this.bins.length){
+        this.phase='finished';this.pointer=null;
+        this.best=this.best===null?this.elapsed:Math.min(this.best,this.elapsed);
+        this.showPanel('ALL BINS COLLECTED!','Great driving! Time '+this.timeLabel(this.elapsed)+' · Best '+this.timeLabel(this.best),'Play again');
+      }
+    }
+    timeLabel(value){const s=Math.floor(value);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+    updateCamera(dt){
+      const t=this.truck,f=clamp(Math.hypot(t.vx,t.vy)/450,0,1);
+      this.zoom+=(1.08-.45*f-this.zoom)*(1-Math.exp(-2.6*dt));
+      const heading=Math.hypot(t.vx,t.vy)>14?Math.atan2(t.vy,t.vx):t.heading;
+      const lead=5+205*f,blend=1-Math.exp(-4.1*dt);
+      this.camX+=(t.x+Math.cos(heading)*lead-this.camX)*blend;
+      this.camY+=(t.y+Math.sin(heading)*lead-this.camY)*blend;
+      this.camX=clamp(this.camX,400/this.zoom,this.worldW-400/this.zoom);
+      this.camY=clamp(this.camY,300/this.zoom,this.worldH-300/this.zoom);
+      this.worldCamera.setZoom(this.zoom).centerOn(this.camX,this.camY);
+    }
+    screenPoint(p){return {x:(p.x-this.camX)*this.zoom+400,y:(p.y-this.camY)*this.zoom+300};}
+    drawArrow(){
+      this.arrow.clear();
+      const nearest=this.bins.filter(b=>b.full).sort((a,b)=>distance(a,this.truck)-distance(b,this.truck))[0];
+      if(!nearest)return;
+      const truck=this.screenPoint(this.truck),bin=this.screenPoint(nearest);
+      let angle=Math.atan2(bin.y-truck.y,bin.x-truck.x),x,y;
+      if(bin.x>45&&bin.x<755&&bin.y>96&&bin.y<557){x=bin.x;y=bin.y-65*this.zoom;angle=Math.PI/2;}
+      else{x=clamp(400+Math.cos(angle)*265,36,764);y=clamp(300+Math.sin(angle)*192,108,560);}
+      const points=[[22,0],[-8,-20],[-1,0],[-8,20]].map(([u,v])=>({x:x+u*Math.cos(angle)-v*Math.sin(angle),y:y+u*Math.sin(angle)+v*Math.cos(angle)}));
+      this.arrow.fillStyle(0xc35bfc).fillPoints(points,true).lineStyle(3,0xfcdeff).strokePoints(points,true);
+    }
+    update(time,delta){
+      if(this.phase!=='playing')return;
+      const dt=Math.min(delta/1000,.05);
+      this.elapsed+=dt;
+      const steps=Math.max(1,Math.ceil(dt*120)),h=dt/steps;
+      for(let i=0;i<steps;i++){this.moveTruck(h);this.cars.forEach(car=>this.moveTraffic(car,h));this.collisions();}
+      this.collect();this.updateCamera(dt);
+      this.truck.sprite.setPosition(this.truck.x,this.truck.y).setRotation(this.truck.heading);
+      this.hud.setText('BINS  '+this.collected+' / '+this.bins.length+'       '+this.timeLabel(this.elapsed));
+      this.bumpTime=Math.max(0,(this.bumpTime||0)-dt);this.bump.setVisible(this.bumpTime>0);
+      this.drawArrow();
+    }
+  }
+  new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#325c4e',
+    scene:Driving,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
+}
+</script></body></html>
