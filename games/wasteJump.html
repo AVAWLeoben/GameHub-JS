@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Jump · GameHub</title>
+<style>
+body{margin:0;background:#151b34;color:#fff8e9;font:18px system-ui;overscroll-behavior:none}
+#game{height:100vh;height:100dvh;width:100%}canvas{display:block;touch-action:none}
+#home{position:fixed;z-index:5;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));width:88px;height:88px;touch-action:manipulation}
+#home img{position:absolute;width:100%;height:100%;object-fit:contain}#home .pressed{opacity:0}#home:active .pressed{opacity:1}
+#pause{position:fixed;right:14px;top:18px;z-index:4;min-width:54px}
+button{font:700 22px system-ui;color:#fff8e9;background:#ba5146;border:3px solid #ffdfbc;border-radius:18px;min-height:60px;padding:10px 24px;touch-action:manipulation}
+.panel{position:fixed;inset:0;background:#151b3440;display:flex;align-items:center;justify-content:center;padding:90px 12px 20px;box-sizing:border-box;overflow:auto}
+.panel[hidden],button[hidden]{display:none}.box{background:#242b4af5;border:3px solid #facdaa;border-radius:22px;text-align:center;padding:26px;max-width:390px;box-shadow:0 7px #11172a80}
+h1{color:#ffcc70;margin:0 0 24px;font-size:36px}p{line-height:1.5}#action{min-width:230px}#status{padding:110px 20px;text-align:center}
+@media(max-height:450px){.panel{align-items:flex-start}.box{padding:14px}h1{font-size:28px;margin-bottom:8px}p{margin:8px}}
+</style></head><body>
+<a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
+<button id="pause" aria-label="Pause game" hidden>Ⅱ</button>
+<div id="game"><p id="status" role="status">Loading Waste Jump…</p></div>
+<section id="panel" class="panel" hidden><div class="box"><h1 id="title">WASTE JUMP</h1><p id="message">TAP TO JUMP<br>Hop over roadworks!<br>One tap · One jump</p><button id="action">▶ Play</button></div></section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const SIZES=[[68,82],[116,81],[92,91],[94,77],[63,106],[110,79]];
+const STEP=1/120,ROAD=483,JUMP=755,GRAVITY=1920;
+function intersects(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+if(!window.Phaser)$('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+function launch(){
+ class Runner extends Phaser.Scene{
+  preload(){
+   for(const name of ['city_dusk_sky','city_dusk_far','city_dusk_near','player'])this.load.image(name,'../assets/wasteJump/'+name+'.png');
+   for(let i=1;i<=6;i++)this.load.image('obstacle'+i,'../assets/wasteJump/obstacle'+i+'.png');
+  }
+  create(){
+   $('status').hidden=true;this.makeFallbacks();
+   this.sky=this.add.image(0,0,'city_dusk_sky').setOrigin(0);
+   this.layers=['city_dusk_far','city_dusk_near'].map(name=>{
+    const source=this.textures.get(name).getSourceImage();
+    return this.add.tileSprite(0,0,800,600,name).setOrigin(0);
+   });
+   const road=this.add.graphics();
+   road.fillStyle(0x212237).fillRect(0,ROAD,800,117);
+   road.fillStyle(0xf7b882).fillRect(0,ROAD-9,800,9);
+   road.fillStyle(0x5d4958).fillRect(0,ROAD-6,800,5);
+   road.fillStyle(0x1a1d2e).fillRect(0,ROAD+3,800,7);
+   this.markings=this.add.graphics();
+   this.shadow=this.add.ellipse(175,490,76,12,0x141728);
+   this.truck=this.add.image(175,436,'player').setDisplaySize(114,108).setDepth(3);
+   this.hud=this.add.text(400,30,'',{fontFamily:'system-ui',fontSize:27,color:'#fff8e9',stroke:'#242b4a',strokeThickness:5}).setOrigin(.5,0).setDepth(5);
+   this.feedback=this.add.text(240,323,'BONK!',{fontFamily:'system-ui',fontSize:32,color:'#ffcc70',stroke:'#242b4a',strokeThickness:4}).setOrigin(.5).setDepth(5).setVisible(false);
+   this.obstacles=[];this.distance=0;this.best=0;this.state='menu';this.accumulator=0;
+   try{this.best=Math.max(0,Number(sessionStorage.getItem('GameHub.wasteJump.best'))||0);}catch{}
+   this.reset();this.state='menu';$('panel').hidden=false;$('pause').hidden=true;
+   $('action').onclick=()=>{if(this.state==='paused')this.resume();else this.start();};
+   $('pause').onclick=()=>this.pauseGame();
+   this.input.on('pointerdown',pointer=>{if(pointer.button<=0)this.jump();});
+   this.input.keyboard.on('keydown',event=>{
+    if(event.repeat)return;
+    if(['Space','ArrowUp','KeyW'].includes(event.code)){
+     if(this.state==='playing')this.jump();else if(this.state==='paused')this.resume();else this.start();
+    }else if(['KeyP','Escape'].includes(event.code)){if(this.state==='playing')this.pauseGame();else if(this.state==='paused')this.resume();}
+   });
+   window.addEventListener('blur',()=>this.pauseGame());
+   document.addEventListener('visibilitychange',()=>{if(document.hidden)this.pauseGame();});
+   this.render(1);
+  }
+  makeFallbacks(){
+   const texture=(name,w,h,paint)=>{
+    if(this.textures.exists(name))return;
+    const t=this.textures.createCanvas(name,w,h);paint(t.context,w,h);t.refresh();
+   };
+   texture('city_dusk_sky',1600,600,(c,w,h)=>{
+    const gradient=c.createLinearGradient(0,0,0,525);gradient.addColorStop(0,'#27244f');gradient.addColorStop(1,'#e37a6f');
+    c.fillStyle=gradient;c.fillRect(0,0,w,h);c.fillStyle='#fdb88e';c.beginPath();c.arc(1150,265,82,0,Math.PI*2);c.fill();
+   });
+   for(const [name,floor,step,colour] of [['city_dusk_far',463,76,'#413d68'],['city_dusk_near',490,97,'#282d50']]){
+    texture(name,1600,600,(c,w)=>{
+     const rng=new Phaser.Math.RandomDataGenerator([name]);
+     for(let x=-10;x<w+step;x+=step){
+      const height=rng.between(110,235),width=rng.between(step-18,step+15);
+      c.fillStyle=colour;c.fillRect(x,floor-height,width,height);c.fillStyle='#eeb783';
+      for(let xx=x+11;xx<x+width-6;xx+=18)for(let yy=floor-height+16;yy<floor-9;yy+=22)if(rng.frac()<.55)c.fillRect(xx,yy,6,9);
+     }
+    });
+   }
+   texture('player',114,108,c=>{
+    c.fillStyle='#f2994d';c.fillRect(10,31,75,50);c.fillStyle='#54b1b7';c.fillRect(70,47,38,35);
+    c.fillStyle='#28586d';c.fillRect(79,51,22,18);
+    for(const x of [31,91]){c.fillStyle='#1a2436';c.beginPath();c.arc(x,82,13,0,Math.PI*2);c.fill();c.fillStyle='#bdcad1';c.beginPath();c.arc(x,82,6,0,Math.PI*2);c.fill();}
+   });
+   SIZES.forEach(([w,h],i)=>texture('obstacle'+(i+1),w,h,c=>{
+    c.fillStyle='#f8a24c';c.fillRect(6,h/3,w-12,h*2/3-3);c.fillStyle='#edeCD4';
+    for(let y=h/3+9;y<h-9;y+=18)c.fillRect(12,y,w-24,6);
+    c.strokeStyle='#434b5f';c.lineWidth=3;c.strokeRect(5,h/3,w-10,h*2/3);
+   }));
+  }
+  reset(){
+   this.obstacles.forEach(o=>o.sprite.destroy());this.obstacles=[];
+   Object.assign(this,{score:0,lives:3,speed:248,spawnTimer:1.65,height:0,previousHeight:0,vertical:0,airtime:0,prejump:0,invincible:0,feedbackTime:0,lastKind:null,accumulator:0,previousDistance:this.distance});
+  }
+  start(){this.reset();this.state='playing';$('panel').hidden=true;$('pause').hidden=false;}
+  pauseGame(){
+   if(this.state!=='playing')return;
+   this.state='paused';this.accumulator=0;
+   this.showPanel('PAUSED','Take your time!','▶ Go!');
+  }
+  resume(){this.state='playing';this.accumulator=0;$('panel').hidden=true;$('pause').hidden=false;}
+  showPanel(title,message,action){
+   $('title').textContent=title;$('message').textContent=message;$('action').textContent=action;
+   $('panel').hidden=false;$('pause').hidden=true;
+  }
+  jump(){if(this.state==='playing'&&this.prejump<=0&&this.height<=0&&this.vertical<=0){this.prejump=.045;this.airtime=0;}}
+  spawn(){
+   const kinds=[0,1,2,3,4,5].filter(i=>i!==this.lastKind),kind=Phaser.Utils.Array.GetRandom(kinds),[w,h]=SIZES[kind];
+   this.lastKind=kind;
+   const sprite=this.add.image(830,ROAD+8-h,'obstacle'+(kind+1)).setOrigin(0).setDisplaySize(w,h).setDepth(2);
+   this.obstacles.push({kind,w,h,x:830,previousX:830,passed:false,sprite});
+   this.spawnTimer=1.75+Math.random()*.45;
+  }
+  bonk(){
+   if(this.invincible>0||this.state!=='playing')return;
+   this.lives--;this.invincible=1.65;this.feedbackTime=.75;
+   if(this.lives<=0){
+    this.state='over';this.feedbackTime=0;
+    this.showPanel('NICE TRY!','Score '+this.score+' · Best '+this.best+' — You can do it!','↻ Again!');
+   }
+  }
+  simulate(dt){
+   this.previousHeight=this.height;this.previousDistance=this.distance;
+   this.speed=Math.min(370,248+this.score*5);this.distance+=this.speed*dt;
+   this.spawnTimer-=dt;if(this.spawnTimer<=0)this.spawn();
+   if(this.prejump>0){this.prejump-=dt;if(this.prejump<=0){this.prejump=0;this.vertical=JUMP;this.airtime=0;}}
+   if(this.vertical>0||this.height>0){
+    this.airtime+=dt;this.height+=this.vertical*dt;this.vertical-=GRAVITY*dt;
+    if(this.height<=0){this.height=0;this.vertical=0;this.airtime=0;}
+   }
+   this.invincible=Math.max(0,this.invincible-dt);this.feedbackTime=Math.max(0,this.feedbackTime-dt);
+   const me={x:143,y:ROAD+7-108-this.height+30+(this.prejump>0?9*Math.min(1,this.prejump/.09):0),w:71,h:67};
+   for(const o of this.obstacles){
+    o.previousX=o.x;o.x-=this.speed*dt;
+    const box={x:o.x+Math.round(o.w*.2),y:ROAD+8-o.h+Math.round(o.h*.2),w:Math.max(15,Math.round(o.w*.6)),h:Math.max(15,Math.round(o.h*.69))};
+    if(intersects(me,box)&&this.invincible<=0)this.bonk();
+    if(this.state!=='playing')break;
+    if(!o.passed&&o.x+o.w<me.x){
+     o.passed=true;this.score++;this.best=Math.max(this.best,this.score);
+     try{sessionStorage.setItem('GameHub.wasteJump.best',String(this.best));}catch{}
+    }
+   }
+   this.obstacles=this.obstacles.filter(o=>{if(o.x+o.w<=-35){o.sprite.destroy();return false;}return true;});
+  }
+  render(alpha){
+   const distance=this.previousDistance+(this.distance-this.previousDistance)*alpha;
+   const height=this.previousHeight+(this.height-this.previousHeight)*alpha;
+   this.layers[0].tilePositionX=distance*.14;this.layers[1].tilePositionX=distance*.27;
+   this.markings.clear().fillStyle(0xffca80);
+   for(let x=-distance%156-156;x<956;x+=156)this.markings.fillRoundedRect(x+10,545,78,7,3);
+   const angle=height>0?Math.min(1,this.airtime/(2*JUMP/GRAVITY))*360:0;
+   this.truck.setPosition(175,ROAD+7-54-height+(this.prejump>0?9*Math.min(1,this.prejump/.09):0))
+    .setAngle(angle).setVisible(!(this.invincible>0&&Math.floor(this.invincible*10)%2===0));
+   this.shadow.setDisplaySize(Math.max(29,76-height*.14),12);
+   for(const o of this.obstacles)o.sprite.x=o.previousX+(o.x-o.previousX)*alpha;
+   this.hud.setText('♥'.repeat(this.lives)+'♡'.repeat(3-this.lives)+'        SCORE '+String(this.score).padStart(2,'0'));
+   this.feedback.setVisible(this.feedbackTime>0);
+  }
+  update(time,delta){
+   if(!this.truck||document.hidden)return;
+   if(this.state==='playing'){
+    this.accumulator=Math.min(.075,this.accumulator+Math.min(.05,delta/1000));
+    while(this.accumulator>=STEP&&this.state==='playing'){this.simulate(STEP);this.accumulator-=STEP;}
+    this.render(this.state==='playing'?this.accumulator/STEP:1);
+   }
+  }
+ }
+ new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#151b34',scene:Runner,
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
+}
+</script></body></html>

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Fork · GameHub</title>
+<style>
+body{margin:0;background:#141d23;color:#faf9ef;font:18px system-ui;overscroll-behavior:none}#game{height:100vh;height:100dvh;width:100%}canvas{display:block;touch-action:none}
+#home{position:fixed;top:max(6px,env(safe-area-inset-top));left:max(6px,env(safe-area-inset-left));width:88px;height:88px;z-index:5;touch-action:manipulation}
+#home img{position:absolute;width:100%;height:100%;object-fit:contain}#home .pressed{opacity:0}#home:active .pressed{opacity:1}
+button{font:600 20px system-ui;min-height:56px;padding:12px 20px;color:#faf9ef;background:#3aa97a;border:2px solid #b3f5cd;border-radius:12px;touch-action:manipulation}
+#drop{position:fixed;bottom:max(12px,env(safe-area-inset-bottom));right:12px;z-index:4;background:#414e51;min-width:194px}#drop.ready{background:#23a568}
+[hidden]{display:none!important}.panel{position:fixed;inset:0;background:#08101acc;display:flex;align-items:center;justify-content:center;padding:90px 12px 20px;box-sizing:border-box;overflow:auto}
+.box{text-align:center;background:#1e2b37;border:3px solid #aad1c2;border-radius:18px;padding:20px;max-width:450px}
+h1{font-size:28px;color:#ffcb66;margin:8px}#tier{font-size:76px;color:#f3d066;margin:8px}#details{white-space:pre-line;line-height:1.7}#replay{background:#314349;margin:8px}#status{padding:110px 20px;text-align:center}
+@media(max-height:500px){.panel{align-items:flex-start}.box{padding:12px}#tier{font-size:48px}#details{line-height:1.4}}
+</style></head><body>
+<a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
+<main id="game" aria-label="Waste Fork"><p id="status">Loading Waste Fork…</p></main>
+<button id="drop" hidden>Drop pallet</button>
+<section id="results" class="panel" hidden><div class="box"><h1 id="title"></h1><div id="tier"></div><p id="details"></p><h2 id="score"></h2><button id="next">Next level</button><button id="replay">Replay level</button></div></section>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const deltaAngle=(destination,origin)=>((destination-origin+180)%360+360)%360-180;
+function reward(distance,streak){
+ const accuracy=Math.max(0,1-distance/58);
+ return {accuracy,points:100+Math.round(170*accuracy)+Math.min(150,Math.max(0,streak-1)*30)};
+}
+function rating(mean,speed){
+ const overall=.72*mean+.28*speed;
+ return overall>=.91&&mean>=.86?'S':overall>=.78?'A':overall>=.64?'B':overall>=.49?'C':'D';
+}
+function spawnPositions(level,quantity){
+ const odd=level%2,truck=odd?{x:105,y:116}:{x:695,y:493};
+ const bay=odd?{x:600,y:385}:{x:72,y:125};
+ const originals=[[100,300],[250,500],[400,150],[550,300],[150,160],[320,395]];
+ const alternatives=[[600,145],[405,305],[245,505],[100,400],[700,295],[525,490]];
+ const candidates=[...(odd?originals:alternatives)];
+ for(const y of [150,285,410,505])for(const x of [110,250,400,540,690])candidates.push([x,y]);
+ const positions=[];
+ for(const [x,y] of candidates){
+  if(x>=bay.x-42.5&&x<bay.x+192.5&&y>=bay.y-42.5&&y<bay.y+192.5)continue;
+  if(Math.hypot(x-truck.x,y-truck.y)<120||positions.some(p=>Math.hypot(x-p.x,y-p.y)<100))continue;
+  positions.push({x,y});
+ }
+ if(positions.length<quantity)throw Error('Not enough pallet spawn locations');
+ return positions.slice(0,quantity);
+}
+if(!window.Phaser)$('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+function launch(){
+ class Fork extends Phaser.Scene{
+  preload(){
+   this.load.image('floor','../assets/wasteFork/floor.png');
+   this.load.image('fork','../assets/wasteFork/forklift_whole.png');
+   this.load.image('pallet','../assets/wasteFork/palette.png');
+  }
+  create(){
+   $('status').hidden=true;this.fallbacks();
+   if(this.textures.exists('floor'))this.add.image(400,300,'floor').setDisplaySize(800,600);
+   else{
+    this.add.rectangle(400,300,800,600,0x696e6b);
+    const lines=this.add.graphics().lineStyle(1,0x707673);
+    for(let y=115;y<600;y+=60)lines.lineBetween(0,y,800,y);
+   }
+   this.bay=this.add.graphics().setDepth(0);
+   this.fork=this.add.image(105,116,'fork').setDisplaySize(240,86).setDepth(30);
+   this.add.rectangle(450,50,678,82,0x1b2a30).setStrokeStyle(2,0x60aa89).setDepth(50);
+   this.hud=this.add.text(450,33,'',{fontFamily:'system-ui',fontSize:23,color:'#faf9ef'}).setOrigin(.5).setDepth(51);
+   this.message=this.add.text(450,73,'',{fontFamily:'system-ui',fontSize:15,color:'#ffcb66'}).setOrigin(.5).setDepth(51);
+   this.level=1;this.totalScore=0;this.pallets=[];this.stackBases=[];
+   this.input.addPointer(2);
+   this.input.on('pointerdown',p=>{if(this.state==='playing'&&this.pointer===null&&p.button<=0&&p.y>94)this.pointer=p;});
+   const release=p=>{if(this.pointer===p)this.pointer=null;};
+   this.input.on('pointerup',release);this.input.on('pointerupoutside',release);
+   const cancel=()=>{this.pointer=null;};
+   window.addEventListener('blur',cancel);document.addEventListener('visibilitychange',cancel);
+   this.game.canvas.addEventListener('touchcancel',cancel);this.scale.on('resize',cancel);
+   this.keys=this.input.keyboard.addKeys('W,A,S,D,LEFT,RIGHT,DOWN');
+   this.input.keyboard.on('keydown',event=>{
+    if(event.repeat)return;
+    if(this.state==='results'){
+     if(['Enter','Space'].includes(event.code)){this.level++;this.startLevel();}
+     else if(event.code==='KeyR')this.startLevel();
+    }else if(['Space','ArrowUp'].includes(event.code)){if(this.carried)this.drop();else this.pickup();}
+    else if(event.code==='KeyR')this.startLevel();
+   });
+   // DOM controls do not dispatch driving input to the Phaser canvas.
+   $('drop').onclick=()=>this.drop();
+   $('next').onclick=()=>{this.level++;this.startLevel();};
+   $('replay').onclick=()=>this.startLevel();
+   this.startLevel();
+  }
+  fallbacks(){
+   const texture=(name,w,h,paint)=>{
+    if(this.textures.exists(name))return;
+    const t=this.textures.createCanvas(name,w,h);paint(t.context);t.refresh();
+   };
+   texture('fork',240,86,c=>{
+    c.fillStyle='#22262a';for(const x of [32,142])for(const y of [11,65])c.fillRect(x,y,34,14);
+    c.fillStyle='#eeab3d';c.fillRect(26,20,158,48);c.fillStyle='#42626f';c.fillRect(105,27,64,34);
+    c.strokeStyle='#cdd9d1';c.lineWidth=5;for(const y of [29,56]){c.beginPath();c.moveTo(175,y);c.lineTo(237,y);c.stroke();}
+   });
+   texture('pallet',96,96,c=>{
+    c.fillStyle='#80542d';c.fillRect(6,12,84,70);c.fillStyle='#c18f56';for(const x of [16,39,62])c.fillRect(x,10,17,74);
+    c.fillStyle='#5f4127';for(const y of [26,64])c.fillRect(12,y,76,3);
+   });
+  }
+  startLevel(){
+   for(const p of this.pallets)p.sprite.destroy();
+   this.stackBases.forEach(s=>s.destroy());this.stackBases=[];
+   const odd=this.level%2;
+   this.target=odd?{x:675,y:460}:{x:147,y:200};
+   this.x=odd?105:695;this.y=odd?116:493;this.angle=odd?0:180;
+   this.quantity=Math.min(10,6+this.level-1);this.par=this.quantity*9+8;
+   Object.assign(this,{state:'playing',pointer:null,carried:null,elapsed:0,placed:0,alignment:0,levelScore:0,streak:0});
+   this.pallets=spawnPositions(this.level,this.quantity).map(p=>({
+    ...p,state:'loose',sprite:this.add.image(p.x,p.y,'pallet').setDisplaySize(96,96).setDepth(2+p.y/1000)
+   }));
+   const t=this.target;
+   this.bay.clear().fillStyle(0x37be70,.26).fillRect(t.x-75,t.y-75,150,150)
+    .lineStyle(4,0x2dea72).strokeRect(t.x-75,t.y-75,150,150)
+    .lineStyle(2,0x5aeb92).lineBetween(t.x-18,t.y,t.x+18,t.y).lineBetween(t.x,t.y-18,t.x,t.y+18);
+   $('results').hidden=true;$('drop').hidden=true;
+   this.note('Hold to drive • Touch behind to reverse • Drop manually',6);
+   this.drawState();
+  }
+  note(text,seconds=1.75){this.message.setText(text);this.messageTime=seconds;}
+  tip(){const rad=this.angle*Math.PI/180;return {x:this.x+Math.cos(rad)*114,y:this.y-Math.sin(rad)*114};}
+  pickup(){
+   if(this.carried||this.state!=='playing')return;
+   const tip=this.tip(),loose=this.pallets.filter(p=>p.state==='loose');
+   loose.sort((a,b)=>Math.hypot(a.x-tip.x,a.y-tip.y)-Math.hypot(b.x-tip.x,b.y-tip.y));
+   const p=loose[0];if(!p||Math.hypot(p.x-tip.x,p.y-tip.y)>57)return;
+   p.state='carried';this.carried=p;p.sprite.setDisplaySize(108,108).setDepth(31);
+   this.note('Pallet on forks • Tap Drop pallet inside the bay');$('drop').hidden=false;
+  }
+  drop(){
+   if(!this.carried||this.state!=='playing')return;
+   const tip=this.tip(),d=Math.hypot(tip.x-this.target.x,tip.y-this.target.y);
+   if(d>58){this.note('Move the fork tips into the green bay');return;}
+   const p=this.carried;this.carried=null;p.state='stacked';
+   this.streak=d<=15?this.streak+1:0;
+   const result=reward(d,this.streak);this.alignment+=result.accuracy;this.levelScore+=result.points;
+   const x=this.target.x+clamp((tip.x-this.target.x)*.32,-14,14);
+   const y=this.target.y+clamp((tip.y-this.target.y)*.28,-11,11)-this.placed*12;
+   const depth=5+this.placed*2;
+   const underside=this.add.rectangle(x,y+5,86,90,0x5c462f).setDepth(depth);
+   this.stackBases.push(underside);
+   p.sprite.setPosition(x,y).setDisplaySize(96,96).setAngle(-this.angle).setDepth(depth+1);
+   this.placed++;$('drop').hidden=true;
+   this.note('+'+result.points+' • Alignment '+Math.round(result.accuracy*100)+'%');
+   if(this.placed===this.quantity)this.finish();
+   this.drawState();
+  }
+  finish(){
+   this.state='results';this.pointer=null;
+   const mean=this.alignment/this.quantity,speed=clamp(this.par/Math.max(1,this.elapsed),0,1);
+   const tier=rating(mean,speed),bonus=Math.round(600*speed);
+   this.levelScore+=bonus;this.totalScore+=this.levelScore;
+   $('title').textContent='LEVEL '+this.level+' COMPLETE';$('tier').textContent=tier;
+   $('details').textContent='Pallets stacked: '+this.placed+'\nAlignment: '+Math.round(mean*100)+'%\nTime: '+this.elapsed.toFixed(1)+'s / Target: '+this.par+'s\nTime bonus: +'+bonus;
+   $('score').textContent='LEVEL SCORE '+this.levelScore;$('results').hidden=false;
+  }
+  move(dt){
+   const turn=Number(this.keys.A.isDown||this.keys.LEFT.isDown)-Number(this.keys.D.isDown||this.keys.RIGHT.isDown);
+   const throttle=Number(this.keys.W.isDown)-Number(this.keys.S.isDown||this.keys.DOWN.isDown);
+   if(turn)this.angle=(this.angle+turn*145*dt+360)%360;
+   if(throttle){
+    const rad=this.angle*Math.PI/180;this.x+=Math.cos(rad)*205*dt*throttle;this.y-=Math.sin(rad)*205*dt*throttle;
+   }else if(this.pointer){
+    const dx=this.pointer.x-this.x,dy=this.pointer.y-this.y,d=Math.hypot(dx,dy);
+    if(d>1){
+     const heading=(Math.atan2(-dy,dx)*180/Math.PI+360)%360;
+     const reverse=Math.abs(deltaAngle(heading,this.angle))>=160;
+     const desired=reverse?(heading+180)%360:heading;
+     this.angle=(this.angle+clamp(deltaAngle(desired,this.angle),-420*dt,420*dt)+360)%360;
+     const stop=reverse?36:this.carried?114:10;
+     if(d>stop){
+      const step=Math.min(d-stop,(reverse?170:225)*dt)*(reverse?-1:1),rad=this.angle*Math.PI/180;
+      this.x+=Math.cos(rad)*step;this.y-=Math.sin(rad)*step;
+     }
+    }
+   }
+   this.x=clamp(this.x,36,764);this.y=clamp(this.y,102,563);
+   if(!this.carried&&(this.pointer||throttle))this.pickup();
+  }
+  drawState(){
+   this.fork.setPosition(this.x,this.y).setAngle(-this.angle);
+   if(this.carried){
+    const tip=this.tip();this.carried.sprite.setPosition(tip.x,tip.y).setAngle(-this.angle);
+    $('drop').classList.toggle('ready',Math.hypot(tip.x-this.target.x,tip.y-this.target.y)<=58);
+   }
+   this.hud.setText('LEVEL '+this.level+'    PALLETS '+this.placed+'/'+this.quantity+'    '+this.elapsed.toFixed(1)+'s    '+this.levelScore+' PTS');
+  }
+  update(time,delta){
+   if(this.state!=='playing'||document.hidden)return;
+   const dt=Math.min(delta/1000,.05);this.elapsed+=dt;
+   this.messageTime=Math.max(0,this.messageTime-dt);if(!this.messageTime)this.message.setText('');
+   const steps=Math.max(1,Math.ceil(dt*120));
+   for(let i=0;i<steps;i++)this.move(dt/steps);
+   this.drawState();
+  }
+ }
+ new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#696e6b',scene:Fork,
+ scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
+}
+</script></body></html>
