@@ -1,0 +1,712 @@
+{
+  "version": "2.2",
+  "note": "Only referenced sprites. Rail tracks rendered by Pygame; no track PNGs. Entry point coordinates normalized relative to each final transparent PNG.",
+  "sprites": [
+    {
+      "name": "station_blue",
+      "category": "stations",
+      "file": "stations/station_blue.png",
+      "kind": "station",
+      "size_px": [
+        418,
+        266
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          209.0,
+          266.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {
+        "platform_front": [
+          0.5,
+          0.96
+        ]
+      },
+      "entry_points_px": {
+        "platform_front": [
+          209.0,
+          255.36
+        ]
+      }
+    },
+    {
+      "name": "station_red",
+      "category": "stations",
+      "file": "stations/station_red.png",
+      "kind": "station",
+      "size_px": [
+        434,
+        265
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          217.0,
+          265.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {
+        "platform_front": [
+          0.5,
+          0.96
+        ]
+      },
+      "entry_points_px": {
+        "platform_front": [
+          217.0,
+          254.4
+        ]
+      }
+    },
+    {
+      "name": "station_green",
+      "category": "stations",
+      "file": "stations/station_green.png",
+      "kind": "station",
+      "size_px": [
+        432,
+        265
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          216.0,
+          265.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {
+        "platform_front": [
+          0.5,
+          0.96
+        ]
+      },
+      "entry_points_px": {
+        "platform_front": [
+          216.0,
+          254.4
+        ]
+      }
+    },
+    {
+      "name": "locomotive_red",
+      "category": "trains",
+      "file": "trains/locomotive_red.png",
+      "kind": "locomotive",
+      "size_px": [
+        231,
+        135
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          115.5,
+          67.5
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "front_coupler": [
+          0.97,
+          0.78
+        ],
+        "rear_coupler": [
+          0.03,
+          0.78
+        ]
+      },
+      "entry_points_px": {
+        "front_coupler": [
+          224.07,
+          105.3
+        ],
+        "rear_coupler": [
+          6.93,
+          105.3
+        ]
+      }
+    },
+    {
+      "name": "locomotive_blue",
+      "category": "trains",
+      "file": "trains/locomotive_blue.png",
+      "kind": "locomotive",
+      "size_px": [
+        238,
+        139
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          119.0,
+          69.5
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "front_coupler": [
+          0.97,
+          0.79
+        ],
+        "rear_coupler": [
+          0.03,
+          0.79
+        ]
+      },
+      "entry_points_px": {
+        "front_coupler": [
+          230.86,
+          109.81
+        ],
+        "rear_coupler": [
+          7.14,
+          109.81
+        ]
+      }
+    },
+    {
+      "name": "wagon_passenger_red",
+      "category": "trains",
+      "file": "trains/wagon_passenger_red.png",
+      "kind": "wagon",
+      "size_px": [
+        130,
+        108
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          65.0,
+          54.0
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_coupler": [
+          0.02,
+          0.77
+        ],
+        "right_coupler": [
+          0.98,
+          0.77
+        ]
+      },
+      "entry_points_px": {
+        "left_coupler": [
+          2.6,
+          83.16
+        ],
+        "right_coupler": [
+          127.4,
+          83.16
+        ]
+      }
+    },
+    {
+      "name": "wagon_passenger_blue",
+      "category": "trains",
+      "file": "trains/wagon_passenger_blue.png",
+      "kind": "wagon",
+      "size_px": [
+        122,
+        108
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          61.0,
+          54.0
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_coupler": [
+          0.02,
+          0.77
+        ],
+        "right_coupler": [
+          0.98,
+          0.77
+        ]
+      },
+      "entry_points_px": {
+        "left_coupler": [
+          2.44,
+          83.16
+        ],
+        "right_coupler": [
+          119.56,
+          83.16
+        ]
+      }
+    },
+    {
+      "name": "wagon_freight_green",
+      "category": "trains",
+      "file": "trains/wagon_freight_green.png",
+      "kind": "wagon",
+      "size_px": [
+        132,
+        110
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          66.0,
+          55.0
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_coupler": [
+          0.02,
+          0.78
+        ],
+        "right_coupler": [
+          0.98,
+          0.78
+        ]
+      },
+      "entry_points_px": {
+        "left_coupler": [
+          2.64,
+          85.8
+        ],
+        "right_coupler": [
+          129.36,
+          85.8
+        ]
+      }
+    },
+    {
+      "name": "wagon_logs",
+      "category": "trains",
+      "file": "trains/wagon_logs.png",
+      "kind": "wagon",
+      "size_px": [
+        138,
+        105
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          69.0,
+          52.5
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_coupler": [
+          0.02,
+          0.79
+        ],
+        "right_coupler": [
+          0.98,
+          0.79
+        ]
+      },
+      "entry_points_px": {
+        "left_coupler": [
+          2.76,
+          82.95
+        ],
+        "right_coupler": [
+          135.24,
+          82.95
+        ]
+      }
+    },
+    {
+      "name": "wagon_tanker_gold",
+      "category": "trains",
+      "file": "trains/wagon_tanker_gold.png",
+      "kind": "wagon",
+      "size_px": [
+        144,
+        110
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          72.0,
+          55.0
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_coupler": [
+          0.02,
+          0.79
+        ],
+        "right_coupler": [
+          0.98,
+          0.79
+        ]
+      },
+      "entry_points_px": {
+        "left_coupler": [
+          2.88,
+          86.9
+        ],
+        "right_coupler": [
+          141.12,
+          86.9
+        ]
+      }
+    },
+    {
+      "name": "wagon_coal_gray",
+      "category": "trains",
+      "file": "trains/wagon_coal_gray.png",
+      "kind": "wagon",
+      "size_px": [
+        144,
+        110
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          72.0,
+          55.0
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_coupler": [
+          0.02,
+          0.8
+        ],
+        "right_coupler": [
+          0.98,
+          0.8
+        ]
+      },
+      "entry_points_px": {
+        "left_coupler": [
+          2.88,
+          88.0
+        ],
+        "right_coupler": [
+          141.12,
+          88.0
+        ]
+      }
+    },
+    {
+      "name": "bridge_horizontal",
+      "category": "scenery",
+      "file": "scenery/bridge_horizontal.png",
+      "kind": "bridge",
+      "size_px": [
+        553,
+        227
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          276.5,
+          113.5
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_port": [
+          0.012,
+          0.36
+        ],
+        "right_port": [
+          0.988,
+          0.36
+        ]
+      },
+      "entry_points_px": {
+        "left_port": [
+          6.64,
+          81.72
+        ],
+        "right_port": [
+          546.36,
+          81.72
+        ]
+      },
+      "rail_behavior": {
+        "traversable": true,
+        "train_visibility": "visible",
+        "graph_edge_kind": "bridge"
+      }
+    },
+    {
+      "name": "tunnel_horizontal",
+      "category": "scenery",
+      "file": "scenery/tunnel_horizontal.png",
+      "kind": "tunnel",
+      "size_px": [
+        629,
+        231
+      ],
+      "anchor": {
+        "mode": "center",
+        "px": [
+          314.5,
+          115.5
+        ],
+        "norm": [
+          0.5,
+          0.5
+        ]
+      },
+      "entry_points_norm": {
+        "left_port": [
+          0.015,
+          0.7
+        ],
+        "right_port": [
+          0.985,
+          0.7
+        ]
+      },
+      "entry_points_px": {
+        "left_port": [
+          9.44,
+          161.7
+        ],
+        "right_port": [
+          619.56,
+          161.7
+        ]
+      },
+      "special": {
+        "hide_train_between_nodes": true
+      },
+      "rail_behavior": {
+        "traversable": true,
+        "train_visibility": "hidden",
+        "graph_edge_kind": "tunnel"
+      }
+    },
+    {
+      "name": "tree_broadleaf",
+      "category": "scenery",
+      "file": "scenery/tree_broadleaf.png",
+      "kind": "scenery",
+      "size_px": [
+        178,
+        200
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          89.0,
+          200.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {},
+      "entry_points_px": {}
+    },
+    {
+      "name": "tree_pine",
+      "category": "scenery",
+      "file": "scenery/tree_pine.png",
+      "kind": "scenery",
+      "size_px": [
+        123,
+        172
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          61.5,
+          172.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {},
+      "entry_points_px": {}
+    },
+    {
+      "name": "rock_cluster",
+      "category": "scenery",
+      "file": "scenery/rock_cluster.png",
+      "kind": "scenery",
+      "size_px": [
+        116,
+        92
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          58.0,
+          92.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {},
+      "entry_points_px": {}
+    },
+    {
+      "name": "flower_patch",
+      "category": "scenery",
+      "file": "scenery/flower_patch.png",
+      "kind": "scenery",
+      "size_px": [
+        92,
+        69
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          46.0,
+          69.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {},
+      "entry_points_px": {}
+    },
+    {
+      "name": "grass_tuft",
+      "category": "scenery",
+      "file": "scenery/grass_tuft.png",
+      "kind": "scenery",
+      "size_px": [
+        45,
+        37
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          22.5,
+          37.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {},
+      "entry_points_px": {}
+    },
+    {
+      "name": "pond",
+      "category": "scenery",
+      "file": "scenery/pond.png",
+      "kind": "scenery",
+      "size_px": [
+        370,
+        238
+      ],
+      "anchor": {
+        "mode": "center",
+        "norm": [
+          0.5,
+          0.5
+        ],
+        "px": [
+          185.0,
+          119.0
+        ]
+      },
+      "entry_points_norm": {},
+      "entry_points_px": {}
+    },
+    {
+      "name": "flower_bush",
+      "category": "scenery",
+      "file": "scenery/flower_bush.png",
+      "kind": "scenery",
+      "size_px": [
+        113,
+        92
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "px": [
+          56.5,
+          92.0
+        ],
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {},
+      "entry_points_px": {}
+    },
+    {
+      "name": "station_old",
+      "file": "station.png",
+      "kind": "station",
+      "category": "stations",
+      "size_px": [
+        546,
+        350
+      ],
+      "anchor": {
+        "mode": "bottom_center",
+        "norm": [
+          0.5,
+          1.0
+        ]
+      },
+      "entry_points_norm": {
+        "platform_front": [
+          0.5,
+          0.98
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Game · GameHub</title>
+<style>
+  body { margin: 0; background: #0a1923; color: white; font: 16px system-ui; }
+  header { padding: 10px 16px; }
+  a { color: #b7eaff; }
+  #game { width: 100%; height: calc(100vh - 44px); height: calc(100dvh - 44px); }
+  canvas { display: block; touch-action: none; }
+  #status { text-align: center; }
+</style>
+<header><a href="../index.html">← Game Menu</a></header>
+<main id="game" aria-label="Memory Game">
+  <p id="status" role="status">Loading Memory Game…</p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+
+const status = document.getElementById('status');
+if (!window.Phaser) {
+  status.textContent = 'Could not load Phaser. Check your connection and reload.';
+} else {
+  startGame();
+}
+
+function startGame() {
+  class Memory extends Phaser.Scene {
+    preload() {
+      this.load.setPath('../assets/');
+      this.load.image('background', 'wasteMatchBackground.PNG');
+      this.load.image('back', 'card_back.png');
+      for (let id = 1; id <= 8; id++) this.load.image('face' + id, 'card_' + id + '.png');
+    }
+
+    create() {
+      if (this.load.totalFailed > 0) {
+        status.textContent = 'Game artwork could not load. Check the assets folder.';
+        return;
+      }
+      status.hidden = true;
+      this.add.image(400, 300, 'background').setDisplaySize(800, 600);
+      this.add.rectangle(400, 300, 800, 600, 0x000000, 0.26);
+      this.add.rectangle(664, 252, 248, 470, 0x122c3b).setStrokeStyle(2, 0xa3cfd8);
+      this.label(664, 54, 'MEMORY', 30);
+      this.hud = this.label(664, 190, '', 23);
+      this.message = this.label(664, 370, '', 23);
+      this.selected = [];
+      this.locked = true;
+      this.turn = 0;
+      this.scores = [0, 0];
+      const pairs = [1, 2, 3, 4, 5, 6, 7, 8];
+      Phaser.Utils.Array.Shuffle(pairs.concat(pairs)).forEach((id, index) => {
+        const x = 108 + 115 * (index % 4);
+        const y = 74 + 115 * Math.floor(index / 4);
+        const image = this.add.image(x, y, 'back').setDisplaySize(100, 100);
+        const border = this.add.rectangle(x, y, 100, 100).setStrokeStyle(2, 0xffffff);
+        const card = { id, image, border, matched: false };
+        this.add.zone(x, y, 100, 100).setInteractive({ useHandCursor: true })
+          .on('pointerup', () => this.pick(card));
+      });
+      const chooser = this.add.container(0, 0, [
+        this.add.rectangle(400, 300, 800, 600, 0x0a1923, 0.8),
+        this.add.rectangle(400, 300, 480, 322, 0x1d404e).setStrokeStyle(3, 0xc2e8e0),
+        this.label(400, 203, 'Memory Game', 40),
+        this.label(400, 253, 'How many players?', 26),
+        this.label(400, 425, 'Match pairs to score points!', 23)
+      ]);
+      for (const players of [1, 2]) {
+        chooser.add(this.button(players === 1 ? 287 : 513, 342,
+          players === 1 ? '1 Player' : '2 Players', () => {
+            chooser.destroy();
+            this.players = players;
+            this.locked = false;
+            this.updateHud();
+          }));
+      }
+    }
+
+    label(x, y, text, size) {
+      return this.add.text(x, y, text, {
+        fontFamily: 'system-ui, sans-serif', fontSize: size,
+        color: '#ffffff', align: 'center', lineSpacing: 14
+      }).setOrigin(0.5);
+    }
+
+    button(x, y, text, action) {
+      const plate = this.add.rectangle(0, 0, 185, 60, 0x286e70)
+        .setStrokeStyle(2, 0xffffff).setInteractive({ useHandCursor: true });
+      plate.on('pointerup', action);
+      return this.add.container(x, y, [plate, this.label(0, 0, text, 25)]);
+    }
+
+    updateHud(finished = false) {
+      const [first, second] = this.scores;
+      const turn = finished ? '' : '\n\nPlayer ' + (this.turn + 1) + ' turn';
+      this.hud.setText(this.players === 1
+        ? 'Pairs found\n' + first + ' / 8'
+        : 'Player 1   ' + first + '\nPlayer 2   ' + second + turn);
+      this.hud.setColor(this.players === 1 || finished ? '#ffffff' :
+        ['#83caff', '#ffb677'][this.turn]);
+    }
+
+    flip(card, faceUp, done) {
+      const image = card.image;
+      this.tweens.add({
+        targets: image, displayWidth: 1, duration: 90,
+        onComplete: () => {
+          image.setTexture(faceUp ? 'face' + card.id : 'back').setDisplaySize(1, 100);
+          this.tweens.add({ targets: image, displayWidth: 100, duration: 90, onComplete: done });
+        }
+      });
+    }
+
+    celebrate(card) {
+      const colors = [0xffe25d, 0x74f297, 0xff8fbe, 0x71d3ff];
+      for (let index = 0; index < 22; index++) {
+        const { x, y } = card.image;
+        const dot = this.add.circle(x, y, Phaser.Math.Between(3, 7),
+          Phaser.Utils.Array.GetRandom(colors));
+        this.tweens.add({
+          targets: dot, x: x + Phaser.Math.Between(-85, 85),
+          y: y + Phaser.Math.Between(-95, 55), scale: 0, alpha: 0,
+          duration: Phaser.Math.Between(450, 950), onComplete: () => dot.destroy()
+        });
+      }
+    }
+
+    pick(card) {
+      if (this.locked || card.matched || this.selected.includes(card)) return;
+      this.selected.push(card);
+      this.flip(card, true);
+      if (this.selected.length < 2) return;
+
+      this.locked = true;
+      const [first, second] = this.selected;
+      const match = first.id === second.id;
+      this.message.setText(match ? 'Match!' : 'Try again!');
+      if (match) this.selected.forEach(selected => this.celebrate(selected));
+      this.time.delayedCall(match ? 550 : 1100, () => {
+        this.selected = [];
+        this.message.setText('');
+        if (match) {
+          for (const matched of [first, second]) {
+            matched.matched = true;
+            matched.border.setStrokeStyle(3, 0x7ae781);
+          }
+          this.scores[this.turn]++;
+          if (this.scores[0] + this.scores[1] === 8) {
+            this.finish();
+            return;
+          }
+          this.locked = false;
+        } else {
+          if (this.players === 2) this.turn = 1 - this.turn;
+          this.flip(first, false);
+          this.flip(second, false, () => { this.locked = false; });
+        }
+        this.updateHud();
+      });
+    }
+
+    finish() {
+      this.updateHud(true);
+      const [first, second] = this.scores;
+      let result = 'Well done!';
+      if (this.players === 2) {
+        result = first === second ? 'It is a tie!' : 'Player ' + (first > second ? 1 : 2) + ' wins!';
+      }
+      this.message.setText(result).setColor('#ffed7e');
+      this.button(664, 442, 'Play again', () => this.scene.restart());
+    }
+  }
+
+  new Phaser.Game({
+    type: Phaser.AUTO, parent: 'game', width: 800, height: 600,
+    backgroundColor: '#0a1923', scene: Memory,
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    audio: { noAudio: true }
+  });
+}
+</script>
+</html>
