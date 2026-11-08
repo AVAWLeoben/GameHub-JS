@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waste Sort · GameHub</title>
+<style>
+  body { margin: 0; background: #203636; color: white; font: 16px system-ui; }
+  header { padding: 10px 16px; }
+  a { color: #c1f4ff; }
+  #game { width: 100%; height: calc(100vh - 44px); height: calc(100dvh - 44px); }
+  canvas { display: block; touch-action: none; }
+  #status { text-align: center; }
+</style>
+</head>
+<body>
+<header><a href="../index.html">← Game Menu</a></header>
+<main id="game" aria-label="Waste Sort"><p id="status" role="status">Loading Waste Sort…</p></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const status = document.getElementById('status');
+if (window.Phaser) start();
+else status.textContent = 'Could not load Phaser. Check your connection and reload.';
+
+function start() {
+  const WIDTH = 800;
+  const HEIGHT = 600;
+  const ROOMS = 6;
+  const bins = [
+    { group: 'Plastik', art: 'yellow', color: 0xffd71c, y: 48 },
+    { group: 'Papier', art: 'red', color: 0xdf453d, y: 196 },
+    { group: 'Bio', art: 'brown', color: 0x8b4513, y: 344 },
+    { group: 'Glas', art: 'green', color: 0x2e9e38, y: 492 }
+  ];
+  const items = [
+    { art: 'paperbox', group: 'Papier', w: 64, h: 64, fallback: '📦' },
+    { art: 'banana', group: 'Bio', w: 64, h: 64, fallback: '🍌' },
+    { art: 'can3', group: 'Plastik', w: 32, h: 60, fallback: '🥫' },
+    { art: 'can4', group: 'Plastik', w: 32, h: 60, fallback: '🥤' },
+    { art: 'glass', group: 'Glas', w: 37, h: 87, fallback: '🍾' }
+  ];
+  const home = () => { location.href = '../index.html'; };
+
+  class SortRoom extends Phaser.Scene {
+    init({ room = 1 } = {}) {
+      this.room = room;
+      this.sorted = 0;
+      this.drag = null;
+      this.phase = 'playing';
+    }
+
+    preload() {
+      const base = new URL('../assets/', document.baseURI);
+      const load = (key, name) => {
+        if (!this.textures.exists(key)) this.load.image(key, new URL(name, base).href);
+      };
+      load('room' + this.room, 'Level' + this.room + '.png');
+      load('star', 'star.png');
+      for (const item of items) load(item.art, item.art + '.png');
+      for (const bin of bins) {
+        load(bin.art, 'trashBin_' + bin.art + '.png');
+        load(bin.art + '-open', 'trashBin_' + bin.art + '_open.png');
+      }
+    }
+
+    create() {
+      status.hidden = true;
+      const roomArt = 'room' + this.room;
+      if (this.textures.exists(roomArt)) this.image(400, 300, roomArt, WIDTH, HEIGHT);
+      else this.add.rectangle(400, 300, WIDTH, HEIGHT, 0x436766);
+      this.add.rectangle(400, 34, 265, 44, 0x1c4b4b);
+      this.progress = this.label(400, 34, '', 22);
+      this.updateProgress();
+
+      this.bins = bins.map(spec => {
+        const bounds = new Phaser.Geom.Rectangle(700, spec.y, 100, 100);
+        const y = spec.y + 50;
+        this.add.rectangle(750, y, 94, 94, spec.color);
+        const art = this.textures.exists(spec.art) ? this.image(750, y, spec.art, 100, 100) : null;
+        if (!art) this.label(750, y, spec.group, 17).setBackgroundColor('#203636');
+        const outline = this.add.rectangle(750, y, 96, 96)
+          .setStrokeStyle(4, 0xfff082).setVisible(false);
+        return { ...spec, bounds, image: art, outline };
+      });
+
+      const occupied = [];
+      for (const spec of Phaser.Utils.Array.Shuffle([...items])) {
+        const bounds = this.spawnBounds(spec, occupied);
+        occupied.push(bounds);
+        const sprite = this.textures.exists(spec.art)
+          ? this.image(bounds.centerX, bounds.centerY, spec.art, spec.w, spec.h)
+          : this.label(bounds.centerX, bounds.centerY, spec.fallback, 42);
+        const hit = this.add.zone(bounds.centerX, bounds.centerY, spec.w, spec.h)
+          .setInteractive({ useHandCursor: true });
+        const item = { ...spec, sprite, hit };
+        hit.on('pointerdown', pointer => this.grab(pointer, item));
+      }
+
+      this.input.on('pointermove', pointer => this.move(pointer));
+      this.input.on('pointerup', pointer => this.release(pointer, true));
+      this.input.on('pointerupoutside', pointer => this.release(pointer, false));
+      const cancel = () => this.release(this.drag?.pointer, false);
+      window.addEventListener('blur', cancel);
+      this.game.canvas.addEventListener('touchcancel', cancel);
+      this.events.once('shutdown', () => {
+        window.removeEventListener('blur', cancel);
+        this.game.canvas.removeEventListener('touchcancel', cancel);
+      });
+      this.input.keyboard.on('keydown-ESC', home);
+      this.input.keyboard.on('keydown-R', () => {
+        if (this.phase === 'finished') this.scene.restart({ room: 1 });
+      });
+    }
+
+    spawnBounds({ w, h }, occupied) {
+      const available = (x, y) => {
+        const padded = new Phaser.Geom.Rectangle(x - 14, y - 14, w + 28, h + 28);
+        return occupied.every(other => !Phaser.Geom.Intersects.RectangleToRectangle(padded, other));
+      };
+      for (let attempt = 0; attempt < 300; attempt++) {
+        const x = Phaser.Math.Between(18, 645 - w);
+        const y = Phaser.Math.Between(118, 585 - h);
+        if (available(x, y)) return new Phaser.Geom.Rectangle(x, y, w, h);
+      }
+      for (let y = 118; y <= 585 - h; y += 12) {
+        for (let x = 18; x <= 645 - w; x += 12) {
+          if (available(x, y)) return new Phaser.Geom.Rectangle(x, y, w, h);
+        }
+      }
+      throw new Error('No free sorting item position');
+    }
+
+    grab(pointer, item) {
+      if (this.phase !== 'playing' || this.drag || pointer.button > 0) return;
+      this.drag = {
+        pointer, item, dx: item.sprite.x - pointer.x, dy: item.sprite.y - pointer.y,
+        startX: item.sprite.x, startY: item.sprite.y
+      };
+      this.children.bringToTop(item.sprite);
+      this.children.bringToTop(item.hit);
+    }
+
+    move(pointer) {
+      if (!this.drag || this.drag.pointer !== pointer) return;
+      const { item, dx, dy } = this.drag;
+      const x = Phaser.Math.Clamp(pointer.x + dx, 9 + item.w / 2, WIDTH - 9 - item.w / 2);
+      const y = Phaser.Math.Clamp(pointer.y + dy, 9 + item.h / 2, HEIGHT - 9 - item.h / 2);
+      item.sprite.setPosition(x, y);
+      item.hit.setPosition(x, y);
+      this.highlight(this.target(pointer, item));
+    }
+
+    target(pointer, item) {
+      return this.bins.find(bin => bin.group === item.group &&
+        Phaser.Geom.Rectangle.Contains(bin.bounds, pointer.x, pointer.y));
+    }
+
+    highlight(target) {
+      for (const bin of this.bins) {
+        bin.outline.setVisible(bin === target);
+        const open = bin.art + '-open';
+        if (bin.image && this.textures.exists(open)) {
+          bin.image.setTexture(bin === target ? open : bin.art).setDisplaySize(100, 100);
+        }
+      }
+    }
+
+    release(pointer, canDrop) {
+      if (!this.drag || this.drag.pointer !== pointer) return;
+      const { item, startX, startY } = this.drag;
+      const target = canDrop && this.target(pointer, item);
+      this.drag = null;
+      this.highlight();
+      if (!target) {
+        item.sprite.setPosition(startX, startY);
+        item.hit.setPosition(startX, startY);
+        return;
+      }
+      item.sprite.destroy();
+      item.hit.destroy();
+      this.sorted++;
+      this.updateProgress();
+      if (this.sorted === items.length) this.clearRoom();
+    }
+
+    clearRoom() {
+      this.phase = 'room_clear';
+      const overlay = this.add.container(0, 0, [
+        this.add.rectangle(400, 300, WIDTH, HEIGHT, 0x132e34, 0.8),
+        this.label(400, 130, 'Great job!', 52),
+        this.star(280, 170),
+        this.label(400, 410, 'Room ' + this.room + ' is clean!', 32)
+      ]);
+      this.time.delayedCall(1800, () => {
+        if (this.room < ROOMS) this.scene.restart({ room: this.room + 1 });
+        else {
+          overlay.destroy();
+          this.finish();
+        }
+      });
+    }
+
+    finish() {
+      this.phase = 'finished';
+      this.add.rectangle(400, 300, WIDTH, HEIGHT, 0x132e34, 0.85);
+      const colors = [0xf05e62, 0xffd547, 0x57baf7, 0x65cb80, 0xbf8af1];
+      for (let i = 0; i < 60; i++) {
+        this.add.circle(Phaser.Math.Between(75, 725), Phaser.Math.Between(85, 500),
+          4, Phaser.Utils.Array.GetRandom(colors));
+      }
+      this.label(400, 90, 'Amazing!', 54);
+      this.star(230, 184);
+      this.label(400, 352, 'The whole house is clean!', 34);
+      this.label(400, 388, 'All 6 rooms sorted!', 24);
+      this.button(280, 'Play again', 0x317f56, () => this.scene.restart({ room: 1 }));
+      this.button(521, 'Home', 0x97502a, home);
+    }
+
+    star(y, size) {
+      const star = this.textures.exists('star') ? this.image(400, y, 'star', size, size) :
+        this.label(400, y, '★', size).setColor('#ffd144');
+      star.setAngle(-9);
+      this.tweens.add({ targets: star, angle: 9, yoyo: true, repeat: -1, duration: 450 });
+      return star;
+    }
+
+    button(x, title, color, action) {
+      this.add.rectangle(x, 457, 210, 65, color).setStrokeStyle(3, 0xffffff)
+        .setInteractive({ useHandCursor: true }).on('pointerup', action);
+      this.label(x, 457, title, 28);
+    }
+
+    updateProgress() {
+      this.progress.setText('Room ' + this.room + ' / ' + ROOMS + '     ' + this.sorted + ' / ' + items.length);
+    }
+
+    label(x, y, value, size) {
+      return this.add.text(x, y, value, {
+        fontFamily: 'system-ui, sans-serif', fontSize: size, color: '#ffffff',
+        stroke: '#203636', strokeThickness: 3
+      }).setOrigin(0.5);
+    }
+
+    image(x, y, key, w, h) {
+      return this.add.image(x, y, key).setDisplaySize(w, h);
+    }
+  }
+
+  new Phaser.Game({
+    type: Phaser.AUTO, parent: 'game', width: WIDTH, height: HEIGHT,
+    backgroundColor: '#203636', scene: SortRoom,
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    audio: { noAudio: true }
+  });
+}
+</script>
+</body>
+</html>
