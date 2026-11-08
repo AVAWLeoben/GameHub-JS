@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><title>wasteHog · GameHub</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#152e3d}#game{position:fixed;inset:0}canvas{display:block;touch-action:none}#error{position:fixed;inset:0;z-index:3;background:#152e3d;font:20px system-ui;color:white;padding:24px}a{color:#d1eda9}</style></head><body><div id="game"></div><div id="error" hidden>The game engine could not load. Check your connection and reload. <a href="../index.html">Home</a></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+class Hog{
+ constructor(s){this.s=s;this.mode='menu';this.best=Number(saved('hog-best',0))||0;this.reset();}
+ reset(){this.p={x:500,y:0,vx:0,vy:-650};this.camera=0;this.platforms=[{x:500,y:65,w:900}];this.gifts=[];this.points=0;this.height=0;this.top=65;this.lastX=500;this.touches=new Map();this.generate();}
+ generate(){while(this.top>this.camera-this.s.h-400){this.top-=rand(115,175);this.lastX=clamp(this.lastX+rand(-190,190),120,880);const p={x:this.lastX,y:this.top,w:rand(190,270)};this.platforms.push(p);if(Math.random()<.65)this.gifts.push({x:p.x,y:p.y-50,value:Math.ceil(rand(0,3))});}}
+ down(p){this.touches.set(p.id,p.x<500?-1:1)}move(p){if(this.touches.has(p.id))this.touches.set(p.id,p.x<500?-1:1)}up(p){this.touches.delete(p.id)}cancel(){this.touches?.clear()}
+ update(dt){if(this.mode!=='play')return;const s=this.s,p=this.p;let dir=[...this.touches.values()].reduce((a,b)=>a+b,0);dir+=(s.keys.ArrowRight||s.keys.d?1:0)-(s.keys.ArrowLeft||s.keys.a?1:0);p.vx=clamp(dir,-1,1)*340;const old=p.y;p.vy+=1100*dt;p.x=(p.x+p.vx*dt+1000)%1000;p.y+=p.vy*dt;for(const a of this.platforms)if(p.vy>=0&&old+25<=a.y&&p.y+25>=a.y&&Math.abs(p.x-a.x)<a.w/2+20){p.y=a.y-25;p.vy=-680;break;}this.camera=Math.min(this.camera,p.y+this.s.h*.42);this.height=Math.max(this.height,-p.y);for(const g of this.gifts)if(!g.hit&&dist(p,g)<48){g.hit=true;this.points+=g.value;}this.platforms=this.platforms.filter(a=>a.y<this.camera+200);this.gifts=this.gifts.filter(a=>!a.hit&&a.y<this.camera+200);this.generate();if(p.y>this.camera+180){this.mode='result';this.best=Math.max(this.best,this.points);save('hog-best',this.best);}}
+ draw(){const s=this.s;s.image('bg',0,0,1000,s.h);const yy=y=>s.h-120+y-this.camera;for(const a of this.platforms){s.box(a.x-a.w/2,yy(a.y),a.w,19,'#e7f4e7',9);s.box(a.x-a.w/2,yy(a.y)+12,a.w,11,'#587d83',5);}for(const g of this.gifts)if(!s.image('gift',g.x-26,yy(g.y)-26,52,52))s.box(g.x-20,yy(g.y)-20,40,40,'#d95161');s.image('hog',this.p.x-37,yy(this.p.y)-28,74,56,0,this.p.vx<0);s.box(80,12,840,58,'#123c44d9');s.text(`GIFTS ${this.points} · HEIGHT ${Math.floor(this.height/10)} m · BEST ${this.best}`,500,40,23);s.text('Hold left or right to steer · Hedgie jumps automatically',500,s.h-30,21);if(this.mode==='menu')s.card('Waste Hog',['Bounce up the snowy platforms and collect gifts.','Hold either half of the screen to steer.'],[['Start climbing',()=>{this.reset();this.mode='play';}]]);if(this.mode==='result')s.card('Lovely climbing!',[`${this.points} gift points · ${Math.floor(this.height/10)} metres`],[['Climb again',()=>{this.reset();this.mode='play';}]]);}
+}
+const GAME={name:'Waste Hog',Game:Hog,assets:{bg:'../assets/wasteHog/BG.jpg',hog:'../assets/hungryHedgie/hedgie.png',gift:'../assets/wasteHog/gift.png',sack:'../assets/hungryHedgie/sack.png'}};
+
+'use strict';
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),rand=(a,b)=>a+Math.random()*(b-a),dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),TAU=Math.PI*2;
+function saved(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
+function save(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{}}
+if(typeof Phaser==='undefined'){document.getElementById('error').hidden=false;}else{
+class HubScene extends Phaser.Scene{
+ constructor(){super('game');this.assets={home:'../assets/retBut.png',homeDown:'../assets/retBut_clicked.png',...GAME.assets};}
+ preload(){for(const [k,p] of Object.entries(this.assets))this.load.image(k,p);}
+ create(){this.keys={};this.holds=new Map();this.zones=[];this.time=0;this.paused=false;this.input.addPointer(4);this.input.keyboard.on('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(!this.paused&&!this.keys[e.key])this.gameplay?.key?.(e.key);this.keys[e.key]=true;if(e.key==='Escape')this.pause();});this.input.keyboard.on('keyup',e=>{this.keys[e.key]=false;});this.input.on('pointerdown',p=>this.down(p));this.input.on('pointermove',p=>this.move(p));this.input.on('pointerup',p=>this.up(p));this.input.on('pointerupoutside',p=>this.up(p));this.scale.on('resize',()=>this.resize());this.game.events.on('blur',()=>this.pause(true));document.addEventListener('visibilitychange',()=>{if(document.hidden)this.pause(true);});this.resize();this.gameplay=new GAME.Game(this);}
+ resize(){this.w=1000;this.h=1000*this.scale.height/this.scale.width;if(this.picture)this.picture.destroy();if(this.textures.exists('screen'))this.textures.remove('screen');this.tex=this.textures.createCanvas('screen',this.w,Math.round(this.h));this.c=this.tex.context;this.picture=this.add.image(0,0,'screen').setOrigin(0).setDisplaySize(this.scale.width,this.scale.height);this.cancel();this.gameplay?.resize?.();}
+ cancel(){this.holds.clear();this.keys={};this.gameplay?.cancel?.();}
+ pause(force=false){if(!this.gameplay)return;this.paused=force||!this.paused;this.cancel();}
+ pt(p){return{x:p.x*this.w/this.scale.width,y:p.y*this.h/this.scale.height,id:p.id};}
+ down(p){const q=this.pt(p);for(const z of [...this.zones].reverse()){if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h){this.holds.set(q.id,{zone:z});if(typeof z.fn==='function')z.fn(q);else this.gameplay?.control?.(z.fn,true,q);return;}}if(!this.paused){this.holds.set(q.id,{world:true});this.gameplay?.down?.(q);}}
+ move(p){const q=this.pt(p),hold=this.holds.get(q.id);if(!hold)return;if(hold.world&&!this.paused)this.gameplay?.move?.(q);else hold.zone?.drag?.(q);}
+ up(p){const q=this.pt(p),hold=this.holds.get(q.id);this.holds.delete(q.id);if(!hold)return;if(hold.world)this.gameplay?.up?.(q);else if(typeof hold.zone.fn==='string')this.gameplay?.control?.(hold.zone.fn,false,q);hold.zone?.up?.(q);}
+ held(name){return [...this.holds.values()].some(h=>h.zone?.fn===name);}
+ update(_,ms){const dt=Math.min(ms/1000,.05);this.time+=dt;if(!this.paused)this.gameplay?.update?.(dt);this.zones=[];this.c.fillStyle=GAME.bg||'#152e3d';this.c.fillRect(0,0,this.w,this.h);this.gameplay?.draw?.();if(this.paused){this.zones=[];this.veil();this.text('PAUSED',500,this.h/2-55,40);this.button('Resume',350,this.h/2,300,64,()=>this.pause(),true);}const home=this.button('',12,12,54,54,()=>{});home.tag='home';home.up=q=>{if(q.x>=12&&q.x<=66&&q.y>=12&&q.y<=66){this.gameplay?.persist?.();location.href='../index.html';}};const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',12,12,54,54))this.text('⌂',39,38,34);if(!this.paused)this.button('Ⅱ',934,12,54,54,()=>this.pause());this.tex.refresh();}
+ text(t,x,y,size=20,color='#f3f8ee',align='center'){this.c.font=`600 ${size}px system-ui,sans-serif`;this.c.fillStyle=color;this.c.textAlign=align;this.c.textBaseline='middle';this.c.fillText(String(t),x,y);}
+ box(x,y,w,h,color='#244c59',radius=14){const c=this.c;c.fillStyle=color;c.beginPath();c.roundRect(x,y,Math.max(0,w),Math.max(0,h),radius);c.fill();}
+ circle(x,y,r,color){this.c.fillStyle=color;this.c.beginPath();this.c.arc(x,y,Math.max(.1,r),0,TAU);this.c.fill();}
+ line(points,color,width=3){if(points.length<2)return;const c=this.c;c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.beginPath();c.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))c.lineTo(p.x,p.y);c.stroke();}
+ image(key,x,y,w,h,angle=0,flip=false){if(!this.textures.exists(key))return false;const c=this.c;c.save();c.translate(x+w/2,y+h/2);c.rotate(angle);c.scale(flip?-1:1,1);c.drawImage(this.textures.get(key).getSourceImage(),-w/2,-h/2,w,h);c.restore();return true;}
+ button(label,x,y,w,h,fn,primary=false){this.box(x,y,w,h,primary?'#c4eaa4':'#244c59');this.text(label,x+w/2,y+h/2,Math.min(21,w/9),primary?'#254638':'#f4f8ee');const z={x,y,w,h,fn};this.zones.push(z);return z;}
+ title(name,sub=''){this.text(name,500,34,28);if(sub)this.text(sub,500,66,16,'#c6d6d5');}
+ veil(){this.c.fillStyle='#102634e8';this.c.fillRect(0,0,1000,this.h);}
+ card(title,lines,buttons){this.zones=[];this.veil();const y=Math.max(110,this.h/2-140);this.text(title,500,y,38,'#d3efb3');lines.forEach((l,i)=>this.text(l,500,y+58+i*32,20));buttons.forEach((b,i)=>this.button(b[0],300,y+90+lines.length*32+i*70,400,56,b[1],i===0));}
+ field(ratio=4/3,bottom=90){const maxW=964,maxH=this.h-100-bottom;const w=Math.min(maxW,maxH*ratio),h=w/ratio;return{x:(1000-w)/2,y:90+(maxH-h)/2,w,h};}
+}
+globalThis.GameHubScene=HubScene;
+new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3d',scale:{mode:Phaser.Scale.RESIZE,width:innerWidth,height:innerHeight},input:{activePointers:5},scene:HubScene});
+
+}
+
+</script></body></html>

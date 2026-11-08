@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><title>wastePizza · GameHub</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#152e3d}#game{position:fixed;inset:0}canvas{display:block;touch-action:none}#error{position:fixed;inset:0;z-index:3;background:#152e3d;font:20px system-ui;color:white;padding:24px}a{color:#d1eda9}</style></head><body><div id="game"></div><div id="error" hidden>The game engine could not load. Check your connection and reload. <a href="../index.html">Home</a></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+const ING=['Tomato','Cheese','Mushroom','Mozzarella'];
+function recipeMatches(need,pieces){const counts=[0,0,0,0];for(const p of pieces)counts[p.type]++;return counts.every((n,i)=>n===need[i]);}
+class Pizza{
+ constructor(s){this.s=s;this.orders=Number(saved('pizza-orders',0))||0;this.mode='menu';this.next();}
+ next(){this.pieces=[];this.drag=null;this.selected=0;this.need=[0,0,0,0];const types=[0,1,2,3].sort(()=>Math.random()-.5).slice(0,Math.min(4,1+Math.floor(this.orders/2)));for(const i of types)this.need[i]=Math.floor(rand(2,6));this.notice='Choose an ingredient, then tap the pizza.';}
+ layout(){const s=this.s,portrait=s.h>1000,R=Math.min(portrait?340:300,(s.h-280)/2);return {x:portrait?500:350,y:portrait?Math.max(380,s.h*.43):s.h/2+10,r:R};}
+ down(p){if(this.mode!=='play')return;const l=this.layout();for(let i=this.pieces.length-1;i>=0;i--){const a=this.pieces[i],q={x:l.x+a.x*l.r,y:l.y+a.y*l.r};if(dist(q,p)<35){this.drag={...a,id:p.id,index:i};return;}}if(dist(p,l)<l.r*.86){this.pieces.push({x:(p.x-l.x)/l.r,y:(p.y-l.y)/l.r,type:this.selected});this.check();}}
+ move(p){if(this.drag?.id===p.id){const l=this.layout();this.drag.x=(p.x-l.x)/l.r;this.drag.y=(p.y-l.y)/l.r;}}
+ up(p){if(this.drag?.id!==p.id)return;const d=this.drag;if(Math.hypot(d.x,d.y)<.9)this.pieces[d.index]={x:d.x,y:d.y,type:d.type};else this.pieces.splice(d.index,1);this.drag=null;this.check();}
+ cancel(){this.drag=null}
+ check(){if(recipeMatches(this.need,this.pieces)){this.orders++;save('pizza-orders',this.orders);this.mode='result';}}
+ draw(){const s=this.s,l=this.layout(),portrait=s.h>1000;s.image('bg',0,0,1000,s.h);s.box(75,12,850,65,'#493b32e8');s.text(`WASTE PIZZA · ${this.orders} pizzas served`,500,39,26);if(!s.image('pizza',l.x-l.r,l.y-l.r,l.r*2,l.r*2)){s.circle(l.x,l.y,l.r,'#d39b56');s.circle(l.x,l.y,l.r*.9,'#efbc6e');}const rx=portrait?140:700,ry=portrait?100:110,rw=portrait?720:270;s.box(rx,ry,rw,portrait?120:270,'#fff4d9');s.text('YOUR ORDER',rx+rw/2,ry+25,23,'#604a38');for(let i=0;i<4;i++){const x=portrait?rx+95+i*175:rx+30,y=portrait?ry+77:ry+68+i*48;const count=this.pieces.filter(p=>p.type===i).length;s.image('i'+i,x-18,y-18,36,36);s.text(`${count} / ${this.need[i]}`,portrait?x+55:rx+125,y,23,count===this.need[i]?'#477d45':'#7b4837');}for(let i=0;i<this.pieces.length;i++){if(this.drag?.index===i)continue;const p=this.pieces[i];s.image('i'+p.type,l.x+p.x*l.r-30,l.y+p.y*l.r-30,60,60);}if(this.drag){const p=this.drag;s.image('i'+p.type,l.x+p.x*l.r-32,l.y+p.y*l.r-32,64,64);}const by=s.h-130;for(let i=0;i<4;i++){const x=40+i*180;s.button('',x,by,155,76,()=>{this.selected=i;},this.selected===i);s.image('i'+i,x+12,by+10,54,54);s.text(ING[i],x+108,by+38,14,this.selected===i?'#314a35':'white');}s.button('Clear',785,by,175,76,()=>{this.pieces=[];this.drag=null;});s.text('Tap ingredients onto the pizza. Drag a topping off to remove it.',500,s.h-25,20,'#fff');if(this.mode==='menu')s.card('Waste Pizza',['Match the ingredient counts on the recipe.','Make a delicious pizza, then take the next order.'],[['Start cooking',()=>{this.mode='play';}]]);if(this.mode==='result')s.card('Great pizza!',[`${this.orders} pizzas served`],[['Next order',()=>{this.next();this.mode='play';}]]);}
+}
+const GAME={name:'Waste Pizza',Game:Pizza,assets:{bg:'../assets/wastePizza/kitchen.jpg',pizza:'../assets/wastePizza/pizza.png',i0:'../assets/wastePizza/tomato.png',i1:'../assets/wastePizza/cheese.png',i2:'../assets/wastePizza/mushroom.png',i3:'../assets/wastePizza/mozzarella.png',chef:'../assets/wastePizza/pizzachef.png'}};
+
+'use strict';
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),rand=(a,b)=>a+Math.random()*(b-a),dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),TAU=Math.PI*2;
+function saved(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
+function save(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{}}
+if(typeof Phaser==='undefined'){document.getElementById('error').hidden=false;}else{
+class HubScene extends Phaser.Scene{
+ constructor(){super('game');this.assets={home:'../assets/retBut.png',homeDown:'../assets/retBut_clicked.png',...GAME.assets};}
+ preload(){for(const [k,p] of Object.entries(this.assets))this.load.image(k,p);}
+ create(){this.keys={};this.holds=new Map();this.zones=[];this.time=0;this.paused=false;this.input.addPointer(4);this.input.keyboard.on('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(!this.paused&&!this.keys[e.key])this.gameplay?.key?.(e.key);this.keys[e.key]=true;if(e.key==='Escape')this.pause();});this.input.keyboard.on('keyup',e=>{this.keys[e.key]=false;});this.input.on('pointerdown',p=>this.down(p));this.input.on('pointermove',p=>this.move(p));this.input.on('pointerup',p=>this.up(p));this.input.on('pointerupoutside',p=>this.up(p));this.scale.on('resize',()=>this.resize());this.game.events.on('blur',()=>this.pause(true));document.addEventListener('visibilitychange',()=>{if(document.hidden)this.pause(true);});this.resize();this.gameplay=new GAME.Game(this);}
+ resize(){this.w=1000;this.h=1000*this.scale.height/this.scale.width;if(this.picture)this.picture.destroy();if(this.textures.exists('screen'))this.textures.remove('screen');this.tex=this.textures.createCanvas('screen',this.w,Math.round(this.h));this.c=this.tex.context;this.picture=this.add.image(0,0,'screen').setOrigin(0).setDisplaySize(this.scale.width,this.scale.height);this.cancel();this.gameplay?.resize?.();}
+ cancel(){this.holds.clear();this.keys={};this.gameplay?.cancel?.();}
+ pause(force=false){if(!this.gameplay)return;this.paused=force||!this.paused;this.cancel();}
+ pt(p){return{x:p.x*this.w/this.scale.width,y:p.y*this.h/this.scale.height,id:p.id};}
+ down(p){const q=this.pt(p);for(const z of [...this.zones].reverse()){if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h){this.holds.set(q.id,{zone:z});if(typeof z.fn==='function')z.fn(q);else this.gameplay?.control?.(z.fn,true,q);return;}}if(!this.paused){this.holds.set(q.id,{world:true});this.gameplay?.down?.(q);}}
+ move(p){const q=this.pt(p),hold=this.holds.get(q.id);if(!hold)return;if(hold.world&&!this.paused)this.gameplay?.move?.(q);else hold.zone?.drag?.(q);}
+ up(p){const q=this.pt(p),hold=this.holds.get(q.id);this.holds.delete(q.id);if(!hold)return;if(hold.world)this.gameplay?.up?.(q);else if(typeof hold.zone.fn==='string')this.gameplay?.control?.(hold.zone.fn,false,q);hold.zone?.up?.(q);}
+ held(name){return [...this.holds.values()].some(h=>h.zone?.fn===name);}
+ update(_,ms){const dt=Math.min(ms/1000,.05);this.time+=dt;if(!this.paused)this.gameplay?.update?.(dt);this.zones=[];this.c.fillStyle=GAME.bg||'#152e3d';this.c.fillRect(0,0,this.w,this.h);this.gameplay?.draw?.();if(this.paused){this.zones=[];this.veil();this.text('PAUSED',500,this.h/2-55,40);this.button('Resume',350,this.h/2,300,64,()=>this.pause(),true);}const home=this.button('',12,12,54,54,()=>{});home.tag='home';home.up=q=>{if(q.x>=12&&q.x<=66&&q.y>=12&&q.y<=66){this.gameplay?.persist?.();location.href='../index.html';}};const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',12,12,54,54))this.text('⌂',39,38,34);if(!this.paused)this.button('Ⅱ',934,12,54,54,()=>this.pause());this.tex.refresh();}
+ text(t,x,y,size=20,color='#f3f8ee',align='center'){this.c.font=`600 ${size}px system-ui,sans-serif`;this.c.fillStyle=color;this.c.textAlign=align;this.c.textBaseline='middle';this.c.fillText(String(t),x,y);}
+ box(x,y,w,h,color='#244c59',radius=14){const c=this.c;c.fillStyle=color;c.beginPath();c.roundRect(x,y,Math.max(0,w),Math.max(0,h),radius);c.fill();}
+ circle(x,y,r,color){this.c.fillStyle=color;this.c.beginPath();this.c.arc(x,y,Math.max(.1,r),0,TAU);this.c.fill();}
+ line(points,color,width=3){if(points.length<2)return;const c=this.c;c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.beginPath();c.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))c.lineTo(p.x,p.y);c.stroke();}
+ image(key,x,y,w,h,angle=0,flip=false){if(!this.textures.exists(key))return false;const c=this.c;c.save();c.translate(x+w/2,y+h/2);c.rotate(angle);c.scale(flip?-1:1,1);c.drawImage(this.textures.get(key).getSourceImage(),-w/2,-h/2,w,h);c.restore();return true;}
+ button(label,x,y,w,h,fn,primary=false){this.box(x,y,w,h,primary?'#c4eaa4':'#244c59');this.text(label,x+w/2,y+h/2,Math.min(21,w/9),primary?'#254638':'#f4f8ee');const z={x,y,w,h,fn};this.zones.push(z);return z;}
+ title(name,sub=''){this.text(name,500,34,28);if(sub)this.text(sub,500,66,16,'#c6d6d5');}
+ veil(){this.c.fillStyle='#102634e8';this.c.fillRect(0,0,1000,this.h);}
+ card(title,lines,buttons){this.zones=[];this.veil();const y=Math.max(110,this.h/2-140);this.text(title,500,y,38,'#d3efb3');lines.forEach((l,i)=>this.text(l,500,y+58+i*32,20));buttons.forEach((b,i)=>this.button(b[0],300,y+90+lines.length*32+i*70,400,56,b[1],i===0));}
+ field(ratio=4/3,bottom=90){const maxW=964,maxH=this.h-100-bottom;const w=Math.min(maxW,maxH*ratio),h=w/ratio;return{x:(1000-w)/2,y:90+(maxH-h)/2,w,h};}
+}
+globalThis.GameHubScene=HubScene;
+new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3d',scale:{mode:Phaser.Scale.RESIZE,width:innerWidth,height:innerHeight},input:{activePointers:5},scene:HubScene});
+
+}
+
+</script></body></html>

@@ -1,0 +1,1842 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><title>Waste Kart · GameHub</title>
+<style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#152e3d}#game{position:fixed;inset:0}canvas{display:block;touch-action:none}#error{position:fixed;inset:0;z-index:3;background:#152e3d;font:20px system-ui;color:white;padding:24px}a{color:#d1eda9}</style></head><body><div id="game"></div><div id="error" hidden>The game engine could not load. Check your connection and reload. <a href="../index.html">Home</a></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+// Repository assets verified against AVAWLeoben/GameHub revision 7659df16fe100086c261bdf3a6c981b22954ce79.
+// Install this file at games/wasteKart.html alongside the existing ../assets/WasteKart directory.
+const KCOL = ["#ef6678", "#6fb5ff", "#92d99a", "#ffd177"];
+const point = (a) => (Array.isArray(a) ? { x: a[0], y: a[1] } : a);
+const mix = (a, b, t) => ({
+  x: a.x + (b.x - a.x) * t,
+  y: a.y + (b.y - a.y) * t,
+});
+const angleDelta = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+function segDist(p, a, b) {
+  const dx = b.x - a.x,
+    dy = b.y - a.y,
+    t = clamp(
+      ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1),
+      0,
+      1,
+    );
+  return dist(p, mix(a, b, t));
+}
+function inside(p, poly) {
+  let yes = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = point(poly[i]),
+      b = point(poly[j]);
+    if (
+      a.y > p.y !== b.y > p.y &&
+      p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x
+    )
+      yes = !yes;
+  }
+  return yes;
+}
+class Route {
+  constructor(raw) {
+    this.points = raw
+      .map(point)
+      .filter((p, i, a) => i === 0 || dist(p, a[i - 1]) > 0.01);
+    this.acc = [0];
+    for (let i = 1; i < this.points.length; i++)
+      this.acc.push(this.acc[i - 1] + dist(this.points[i - 1], this.points[i]));
+    this.length = this.acc.at(-1) || 0;
+  }
+  sample(d) {
+    d = clamp(d, 0, this.length);
+    let lo = 0,
+      hi = this.acc.length - 1;
+    while (lo + 1 < hi) {
+      const m = (lo + hi) >> 1;
+      if (this.acc[m] <= d) lo = m;
+      else hi = m;
+    }
+    const a = this.points[lo],
+      b = this.points[Math.min(lo + 1, this.points.length - 1)];
+    return {
+      ...mix(a, b, (d - this.acc[lo]) / (dist(a, b) || 1)),
+      a: Math.atan2(b.y - a.y, b.x - a.x),
+    };
+  }
+}
+class KartAssets {
+  constructor() {
+    this.images = {};
+    this.masks = {};
+  }
+  async json(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw Error("Could not load " + url);
+    return r.json();
+  }
+  async image(url) {
+    if (this.images[url]) return this.images[url];
+    return new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => {
+        this.images[url] = im;
+        resolve(im);
+      };
+      im.onerror = () => reject(Error("Could not load " + url));
+      im.src = url;
+    });
+  }
+  async mask(url) {
+    const im = await this.image(url),
+      c = document.createElement("canvas");
+    c.width = im.width;
+    c.height = im.height;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(im, 0, 0);
+    return {
+      w: im.width,
+      h: im.height,
+      data: ctx.getImageData(0, 0, im.width, im.height).data,
+    };
+  }
+}
+class Kart {
+  constructor(s) {
+    this.s = s;
+    this.assets = new KartAssets();
+    this.mode = "loading";
+    this.players = 2;
+    this.laps = 1;
+    this.drawSeconds = 60;
+    this.powerups = false;
+    this.reflex = true;
+    this.interactions = true;
+    this.showLines = false;
+    this.cupMode = false;
+    this.index = 0;
+    this.cupStart = 0;
+    this.cupRound = 0;
+    this.cupScores = [0, 0, 0, 0];
+    this.karts = [0, 1, 2, 3];
+    this.root = "../assets/WasteKart/";
+    this.loadCatalog();
+  }
+  async loadCatalog() {
+    try {
+      this.catalog = await this.assets.json(this.root + "catalog.json");
+      if (!this.catalog.tracks?.length)
+        throw Error("The track catalog is empty.");
+      const overrides = {
+        11: ["Comet Canyon", "comet_canyon"],
+        12: ["Phantom Boardwalk", "phantom_boardwalk"],
+        13: ["Glow Garden", "glow_garden"],
+        14: ["Starlight Spiral", "starlight_spiral"],
+        15: ["Rainbow Rocket", "rainbow_rocket"],
+      };
+      for (const [i, [name, dir]] of Object.entries(overrides))
+        if (this.catalog.tracks[i])
+          this.catalog.tracks[i] = {
+            name,
+            image: `${dir}/${dir}_track.png`,
+            road_mask: `${dir}/${dir}_road_mask${dir === "rainbow_rocket" ? "_all" : ""}.png`,
+            geometry: `${dir}/${dir}_geometry.json`,
+          };
+      this.kartImages = await Promise.all(
+        (this.catalog.karts || []).map((k) =>
+          this.assets.image(this.root + k.image),
+        ),
+      );
+      this.loadAmulets();
+      this.mode = "menu";
+    } catch (e) {
+      this.error = e.message;
+      this.mode = "error";
+    }
+  }
+  async loadAmulets() {
+    try {
+      const root = this.root + "amulets/",
+        m = await this.assets.json(root + "amulet_manifest.json");
+      this.amuletRoot = root + "1x/";
+      this.amuletNames = m.palette_index_to_name;
+      const urls = [];
+      for (let i = 0; i < 8; i++) {
+        for (const kind of ["plain", "socket"])
+          urls.push(`amulets/amulet_${i}_${this.amuletNames[i]}_${kind}.png`);
+        for (let p = 1; p <= 4; p++)
+          urls.push(`badges/badge_${i}_${this.amuletNames[i]}_p${p}.png`);
+      }
+      urls.push(
+        "fx/halo_gold.png",
+        "fx/halo_turbo.png",
+        "fx/halo_tailwind.png",
+        "fx/pressed_overlay.png",
+      );
+      await Promise.all(
+        urls.map((f) => this.assets.image(this.amuletRoot + f)),
+      );
+    } catch {
+      this.amuletRoot = null;
+    }
+  }
+  async loadTrack() {
+    this.mode = "loading";
+    this.error = "";
+    try {
+      this.entry = this.catalog.tracks[this.index];
+      this.geom = await this.assets.json(this.root + this.entry.geometry);
+      this.map = await this.assets.image(this.root + this.entry.image);
+      this.road = await this.assets.mask(this.root + this.entry.road_mask);
+      this.center = new Route([
+        ...this.geom.centerline,
+        this.geom.centerline[0],
+      ]);
+      this.overlays = [];
+      for (const key of ["overlay_image", "train_tunnel_overlay"])
+        if (this.geom[key])
+          this.overlays.push(
+            await this.assets.image(this.root + this.geom[key]),
+          );
+      this.manifests = {};
+      this.masks = {};
+      this.hazards = [];
+      this.profile = null;
+      this.profileRoute = null;
+      for (const key of [
+        "train",
+        "cactus",
+        "golden_gorge",
+        "canyon",
+        "phantom",
+        "glow",
+        "spiral",
+        "rocket",
+      ]) {
+        const rel = this.geom[key + "_manifest"];
+        if (!rel) continue;
+        const url = this.root + rel,
+          base = url.slice(0, url.lastIndexOf("/") + 1),
+          m = await this.assets.json(url);
+        this.manifests[key] = { m, base };
+        await this.prepareHazards(key, m, base);
+      }
+      this.drawPlayer = 0;
+      this.drawLap = 0;
+      this.routes = [];
+      this.rawLaps = [];
+      this.mode = "karts";
+    } catch (e) {
+      this.error = e.message;
+      this.mode = "error";
+    }
+  }
+  async prepareHazards(kind, m, base) {
+    const maskNames = {};
+    if (kind === "canyon") {
+      Object.assign(maskNames, m.masks);
+      maskNames.ramp = m.jump.ramp_mask;
+      maskNames.landing = m.jump.landing_mask;
+    }
+    if (kind === "phantom")
+      for (const k of ["fall_zone_mask", "ground_slow_mask", "rail_wall_mask"])
+        if (m.files[k]) maskNames[k] = m.files[k];
+    if (kind === "rocket") {
+      for (const k of [
+        "road_layer0",
+        "road_layer1_deck",
+        "road_all",
+        "fall_zone",
+      ])
+        maskNames[k] = m.files[k];
+      this.profile = await this.assets.json(base + m.files.width_profile);
+      this.profileGrid = new Map();
+      this.profileStateCache = new WeakMap();
+      this.profile.samples.forEach((p, i) => {
+        p.heading = Math.atan2(p.ty, p.tx);
+        const key = Math.floor(p.x / 50) + "," + Math.floor(p.y / 50);
+        if (!this.profileGrid.has(key)) this.profileGrid.set(key, []);
+        this.profileGrid.get(key).push(i);
+      });
+      this.profileRoute = new Route(
+        this.profile.samples.map((a) => ({ x: a.x, y: a.y })),
+      );
+    }
+    for (const [k, url] of Object.entries(maskNames))
+      if (typeof url === "string")
+        this.masks[k] = await this.assets.mask(base + url);
+    const spriteURLs = new Set();
+    const scan = (o, key = "") => {
+      if (
+        [
+          "draw_order",
+          "draw_order_note",
+          "note",
+          "hires",
+          "masks",
+          "road_mask",
+        ].includes(key)
+      )
+        return;
+      if (
+        typeof o === "string" &&
+        /\.(png|jpg)$/i.test(o) &&
+        !/[<>*]/.test(o) &&
+        !o.includes("mask")
+      )
+        spriteURLs.add(base + o);
+      else if (Array.isArray(o)) o.forEach((v) => scan(v, key));
+      else if (o && typeof o === "object")
+        Object.entries(o).forEach(([k, v]) => scan(v, k));
+    };
+    scan(m);
+    await Promise.all([...spriteURLs].map((url) => this.assets.image(url)));
+    if (kind === "train") {
+      let offset = 0,
+        last = null;
+      for (const name of m.suggested_consist) {
+        const spec = m.sprites[name];
+        if (last)
+          offset +=
+            (last.body_length_px + spec.body_length_px) / 2 + m.coupler_gap_px;
+        this.hazards.push({
+          kind,
+          m,
+          base,
+          spec,
+          offset,
+          x: 1375 + offset,
+          y: m.rail.y,
+          old: { x: 1375 + offset, y: m.rail.y },
+          radius: spec.body_width_px / 2,
+        });
+        last = spec;
+      }
+    }
+    if (kind === "cactus")
+      m.hazard_lanes.forEach((a, i) => {
+        const spec = m.hazards[i === 1 ? "barrel_roller" : "saguaro_walk"];
+        this.hazards.push({
+          kind,
+          m,
+          base,
+          spec,
+          record: a,
+          lane: i,
+          x: a.desert_end[0],
+          y: a.y,
+          old: { x: a.desert_end[0], y: a.y },
+          radius: spec.hitbox.radius,
+        });
+      });
+    if (kind === "golden_gorge") {
+      const names = Object.keys(m.log_hazard.sprites);
+      for (let i = 0; i < 14; i++)
+        this.hazards.push({
+          kind,
+          m,
+          base,
+          spec: m.log_hazard.sprites[names[i % names.length]],
+          slot: i,
+          u: -55 + i * 92,
+          x: 0,
+          y: 0,
+          old: { x: 0, y: 0 },
+          radius: 12,
+        });
+    }
+    for (const [list, specs] of [
+      ["ghosts", "ghost_sprites"],
+      ["fairies", "fairy_sprites"],
+      ["cats", "cat_sprites"],
+      ["chompers", "chomper_sprites"],
+    ])
+      if (m[list])
+        m[list].forEach((a, i) => {
+          const raw = a.loop_points
+            ? [...a.loop_points, a.loop_points[0]]
+            : a.points;
+          this.hazards.push({
+            kind,
+            m,
+            base,
+            spec: m[specs][a.type],
+            record: a,
+            route: raw ? new Route(raw) : null,
+            slot: i,
+            x: 0,
+            y: 0,
+            old: { x: 0, y: 0 },
+            radius: m[specs][a.type].hitbox_radius_px,
+            poof: -10,
+            offset: { x: 0, y: 0 },
+          });
+        });
+  }
+  mask(name, p) {
+    const m = this.masks[name];
+    if (!m || p.x < 0 || p.y < 0 || p.x >= m.w || p.y >= m.h) return false;
+    return m.data[(Math.floor(p.y) * m.w + Math.floor(p.x)) * 4] > 127;
+  }
+  onRoad(p) {
+    if (p.x < 0 || p.y < 0 || p.x >= this.road.w || p.y >= this.road.h)
+      return false;
+    return (
+      this.road.data[(Math.floor(p.y) * this.road.w + Math.floor(p.x)) * 4] >
+        127 && !this.mask("permanent_crater_slow", p)
+    );
+  }
+  bridge(p) {
+    const data = this.manifests.canyon?.m.bridges || {};
+    return Object.values(data).some(
+      (b) =>
+        b.deck_bbox_px &&
+        p.x >= b.deck_bbox_px[0] &&
+        p.y >= b.deck_bbox_px[1] &&
+        p.x <= b.deck_bbox_px[2] &&
+        p.y <= b.deck_bbox_px[3],
+    );
+  }
+  profileAt(distance) {
+    const list = this.profile.samples,
+      length = this.profile.lap_length_px,
+      d = ((distance % length) + length) % length;
+    let lo = 0,
+      hi = list.length - 1;
+    while (lo + 1 < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid].s <= d) lo = mid;
+      else hi = mid;
+    }
+    const a = list[lo],
+      b = list[Math.min(lo + 1, list.length - 1)],
+      u = clamp((d - a.s) / (b.s - a.s || 1), 0, 1),
+      lerp = (k) => a[k] + (b[k] - a[k]) * u;
+    return {
+      x: lerp("x"),
+      y: lerp("y"),
+      a: Math.atan2(lerp("ty"), lerp("tx")),
+      s: d,
+      kart_scale: lerp("kart_scale"),
+      half_width: lerp("half_width"),
+      elevation: lerp("elevation"),
+      layer: u < 0.5 ? a.layer : b.layer,
+    };
+  }
+  layer(p) {
+    if (!this.profile) return null;
+    const cached = this.profileStateCache?.get(p);
+    if (cached) return cached;
+    let best = null,
+      candidates = [];
+    const bx = Math.floor(p.x / 50),
+      by = Math.floor(p.y / 50);
+    if (this.profileGrid)
+      for (let x = -2; x <= 2; x++)
+        for (let y = -2; y <= 2; y++)
+          candidates.push(
+            ...(this.profileGrid.get(bx + x + "," + (by + y)) || []),
+          );
+    if (!candidates.length) candidates = this.profile.samples.map((_, i) => i);
+    for (const i of candidates) {
+      const a = this.profile.samples[i],
+        d =
+          Math.hypot(a.x - p.x, a.y - p.y) +
+          (Number.isFinite(p.a)
+            ? Math.abs(angleDelta(p.a, a.heading ?? Math.atan2(a.ty, a.tx))) *
+              19
+            : 0);
+      if (!best || d < best.d) best = { i, d };
+    }
+    const samples = this.profile.samples;
+    let near = null;
+    for (const i of [best.i - 1, best.i]) {
+      if (i < 0 || i >= samples.length - 1) continue;
+      const a = samples[i],
+        b = samples[i + 1],
+        dx = b.x - a.x,
+        dy = b.y - a.y,
+        u = clamp(
+          ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1),
+          0,
+          1,
+        ),
+        gap = dist(p, mix(a, b, u));
+      if (!near || gap < near.gap) near = { gap, s: a.s + (b.s - a.s) * u };
+    }
+    const state = this.profileAt(near ? near.s : samples[best.i].s);
+    this.profileStateCache?.set(p, state);
+    return state;
+  }
+  fall(p) {
+    if (this.manifests.rocket)
+      return !this.mask(
+        this.layer(p)?.layer || 0 ? "road_layer1_deck" : "road_layer0",
+        p,
+      );
+    if (this.manifests.phantom) return this.mask("fall_zone_mask", p);
+    return this.mask("fall_zone", p) && !this.bridge(p);
+  }
+  field() {
+    const available = this.s.h - 140,
+      w = Math.min(976, available * 1.6),
+      h = w / 1.6;
+    return { x: (1000 - w) / 2, y: 78 + (available - h) / 2, w, h };
+  }
+  screen(p) {
+    const r = this.field();
+    return { x: r.x + (p.x * r.w) / 960, y: r.y + (p.y * r.h) / 600 };
+  }
+  world(p) {
+    const r = this.field();
+    return {
+      x: clamp(((p.x - r.x) / r.w) * 960, 0, 959),
+      y: clamp(((p.y - r.y) / r.h) * 600, 0, 599),
+    };
+  }
+  beginDraw() {
+    this.draft = [point(this.geom.centerline[0])];
+    this.drawDistance = 0;
+    this.drawTime = this.drawSeconds;
+    this.mode = "draw";
+    this.warning = "Draw a loop from the flag and back.";
+  }
+  down(p) {
+    if (this.mode !== "draw" || this.pointer !== undefined) return;
+    this.pointer = p.id;
+    this.move(p);
+  }
+  move(p) {
+    if (this.mode !== "draw" || p.id !== this.pointer) return;
+    const q = this.world(p),
+      last = this.draft.at(-1),
+      d = dist(q, last);
+    if (d < 5 || this.draft.length > 1800) return;
+    this.draft.push(q);
+    this.drawDistance += d;
+    if (this.fall(q)) this.warning = "Gap ahead! Use the bridge or jump ramp.";
+    else if (!this.onRoad(q))
+      this.warning = "Off road: your kart will slow down.";
+    if (
+      this.drawDistance > this.center.length * 0.65 &&
+      segDist(this.draft[0], last, q) < 28
+    )
+      this.sealLap();
+  }
+  up(p) {
+    if (p.id === this.pointer) this.pointer = undefined;
+  }
+  cancel() {
+    this.pointer = undefined;
+  }
+  sealLap() {
+    if (this.mode !== "draw") return;
+    const route =
+      this.draft.length > 5 && this.drawDistance > 100
+        ? [...this.draft, this.draft[0]]
+        : this.center.points;
+    this.rawLaps.push(route);
+    this.drawLap++;
+    this.pointer = undefined;
+    if (this.drawLap < this.laps) {
+      this.beginDraw();
+      return;
+    }
+    this.routes.push(new Route(this.rawLaps.flat()));
+    this.drawPlayer++;
+    this.drawLap = 0;
+    this.rawLaps = [];
+    if (this.drawPlayer >= this.players) this.startRace();
+    else this.mode = "ready";
+  }
+  startRace() {
+    this.racers = this.routes.map((route, i) => ({
+      i,
+      route,
+      d: 0,
+      speed: 0,
+      pos: route.sample(0),
+      lastSafe: 0,
+      stun: 0,
+      immune: 0,
+      fallTime: 0,
+      item: null,
+      effect: null,
+      effectLeft: 0,
+      reaction: null,
+      reactionLeft: 0,
+      finished: false,
+      time: 0,
+      record: [],
+    }));
+    this.elapsed = 0;
+    this.countdown = 3;
+    this.mode = "countdown";
+    this.boxes = Array.from({ length: 6 }, (_, i) => ({
+      ...this.center.sample((this.center.length * (i + 0.5)) / 6),
+      ready: 0,
+      slot: i,
+    }));
+    this.oldGhost = saved("kart-ghost-" + this.index + "-" + this.laps, null);
+    this.recordClock = 0;
+    this.comets = [];
+    this.bumpUntil = {};
+    this.cactusTime = 0;
+    this.cactusActive = 0;
+    this.cactusRest = 1.5;
+    this.cactusDir = 1;
+    for (const a of this.hazards) {
+      a.poof = -10;
+      if (a.kind === "glow") a.offset = { x: 0, y: 0 };
+      if (a.kind === "cactus") {
+        a.x = a.record.desert_end[0];
+        a.direction = 1;
+      }
+      if (a.kind === "golden_gorge") a.u = -55 + a.slot * 92;
+    }
+    this.updateHazards(0);
+  }
+  press(i) {
+    this.pressedUntil = this.pressedUntil || [];
+    this.pressedUntil[i] = this.s.time + 0.15;
+    const r = this.racers?.[i];
+    if (!r) return;
+    if (
+      this.reflex &&
+      r.reaction === null &&
+      (this.mode === "countdown" ||
+        (this.mode === "race" && this.elapsed < 1.5))
+    ) {
+      r.reaction = this.mode === "countdown" ? -1 : this.elapsed;
+      r.reactionLeft = 3;
+      return;
+    }
+    if (this.mode === "race" && r.item) {
+      r.effect = r.item;
+      r.effectLeft = r.item === "turbo" ? 3.2 : 6;
+      r.item = null;
+    }
+  }
+  updateHazards(dt) {
+    const t = this.elapsed;
+    this.cactusRest -= dt;
+    for (const a of this.hazards) {
+      a.old = { x: a.x, y: a.y };
+      a.oldLayer = a.layer;
+      a.visible = true;
+      a.solid = true;
+      a.scale = 1;
+      const m = a.m,
+        r = a.record || {},
+        spec = a.spec;
+      let p = { x: a.x, y: a.y };
+      if (a.kind === "train") {
+        const span =
+          1750 + this.hazards.filter((h) => h.kind === "train").at(-1).offset;
+        p = { x: 1375 - ((t * 118) % span) + a.offset, y: m.rail.y };
+        a.visible = true;
+      } else if (a.kind === "cactus") {
+        if (a.lane === this.cactusActive && this.cactusRest <= 0) {
+          const target =
+            a.direction > 0 ? r.cactus_body_end[0] : r.desert_end[0];
+          p.x +=
+            Math.sign(target - p.x) *
+            Math.min(Math.abs(target - p.x), spec.suggested_speed_px_s * dt);
+          if (Math.abs(target - p.x) < 0.01) {
+            a.direction *= -1;
+            this.cactusActive = (this.cactusActive + 1) % m.hazard_lanes.length;
+            this.cactusRest = 1.4;
+          }
+        }
+      } else if (a.kind === "golden_gorge") {
+        const h = m.log_hazard,
+          g = m.gorge;
+        a.u += h.speed_px_s[a.slot % h.speed_px_s.length] * dt;
+        if (a.u > g.despawn_at_u + 40) a.u = g.spawn_at_u;
+        const lateral =
+          h.lanes_across_gorge_px[a.slot % h.lanes_across_gorge_px.length] +
+          h.lateral_bob_px *
+            Math.sin((TAU * t) / h.bob_period_s + a.slot * 1.37);
+        p = {
+          x:
+            g.centre_line[0][0] +
+            g.flow_direction_unit[0] * a.u +
+            g.across_unit_vector_south_east[0] * lateral,
+          y:
+            g.centre_line[0][1] +
+            g.flow_direction_unit[1] * a.u +
+            g.across_unit_vector_south_east[1] * lateral,
+        };
+      } else if (a.kind === "rocket") {
+        const l = r.lunge,
+          phase = t % l.cycle_s,
+          whole =
+            l.roam_s * r.speed_px_s +
+            l.lunge_s * l.lunge_speed_px_s +
+            (l.cycle_s - l.roam_s - l.windup_s - l.lunge_s) * r.speed_px_s;
+        let walk =
+          Math.floor(t / l.cycle_s) * whole +
+          Math.min(phase, l.roam_s) * r.speed_px_s +
+          clamp(phase - l.roam_s - l.windup_s, 0, l.lunge_s) *
+            l.lunge_speed_px_s +
+          Math.max(0, phase - l.roam_s - l.windup_s - l.lunge_s) * r.speed_px_s;
+        let d =
+          (r.start_index + (r.direction === "with_lap" ? 1 : -1) * walk) %
+          this.profile.lap_length_px;
+        if (d < 0) d += this.profile.lap_length_px;
+        const q = this.profileAt(d),
+          heading = q.a,
+          lateral =
+            r.weave.amplitude_halfwidth *
+            q.half_width *
+            Math.sin((TAU * d) / r.weave.period_px);
+        p = {
+          x: q.x - Math.sin(heading) * lateral,
+          y: q.y + Math.cos(heading) * lateral,
+        };
+        a.s = d;
+        a.layer = q.layer;
+        a.scale = q.kart_scale;
+        a.facing = heading + (r.direction === "against_lap" ? Math.PI : 0);
+        a.travelled = walk;
+        a.charge =
+          phase >= l.roam_s && phase < l.roam_s + l.windup_s + l.lunge_s;
+      } else {
+        const motion = r.motion;
+        if (motion === "sweep")
+          p = mix(
+            point(r.a),
+            point(r.b),
+            0.5 - 0.5 * Math.cos((TAU * (t + (r.phase_s || 0))) / r.period_s),
+          );
+        else if (motion === "pingpong") {
+          let d = (t * r.speed_px_s) % (a.route.length * 2);
+          p = a.route.sample(d > a.route.length ? 2 * a.route.length - d : d);
+        } else if (motion?.startsWith("loop")) {
+          p = a.route.sample(
+            ((t + (r.start_offset_s || 0)) * r.speed_px_s) % a.route.length,
+          );
+          if (motion === "loop_weave") {
+            p.x += r.pirouette_radius_px * Math.cos(TAU * r.pirouette_hz * t);
+            p.y += r.pirouette_radius_px * Math.sin(TAU * r.pirouette_hz * t);
+          }
+        } else if (motion === "lissajous") {
+          const phase = TAU * r.freq_hz * t + r.phase,
+            along = r.along_amp_px * Math.sin(phase),
+            lat = r.lateral_amp_px * Math.sin(phase * 2 + 0.55);
+          p = {
+            x: r.center[0] + r.tangent[0] * along + r.normal[0] * lat,
+            y: r.center[1] + r.tangent[1] * along + r.normal[1] * lat,
+          };
+        } else if (motion === "orbit") {
+          const angle = ((TAU * t) / r.period_s) * r.direction + r.phase;
+          p = {
+            x: r.center[0] + r.radius_px * Math.cos(angle),
+            y: r.center[1] + r.radius_px * Math.sin(angle),
+          };
+        } else if (motion === "spiral_orbit") {
+          const u = (t / r.cycle_s + r.phase) % 1,
+            rad =
+              r.r_min_px +
+              (r.r_max_px - r.r_min_px) * (0.5 - 0.5 * Math.cos(TAU * u)),
+            angle = TAU * r.turns_per_cycle * u;
+          p = {
+            x: r.center[0] + rad * Math.cos(angle),
+            y: r.center[1] + rad * Math.sin(angle),
+          };
+        } else if (motion === "strike") {
+          const phase = (t + (r.phase_s || 0)) % r.cycle_s;
+          a.visible = phase >= r.warning_s && phase < r.warning_s + r.dash_s;
+          a.warning = phase < r.warning_s;
+          p = mix(
+            point(r.a),
+            point(r.b),
+            clamp((phase - r.warning_s) / r.dash_s, 0, 1),
+          );
+        }
+        if (a.kind === "phantom") {
+          const phase = (t + a.slot * 0.73) % (m.ghost_phase.cycle_s || 7);
+          a.solid = phase < (m.ghost_phase.solid_s || 4.6);
+        }
+        if (a.kind === "glow" && r.curious) {
+          const conf = m.fairy_curiosity;
+          let nearest = null;
+          for (const racer of this.racers || [])
+            if (
+              !racer.finished &&
+              dist(p, racer.pos) < conf.sense_radius_px &&
+              (!nearest || dist(p, racer.pos) < dist(p, nearest.pos))
+            )
+              nearest = racer;
+          const goal = nearest
+            ? mix(
+                { x: 0, y: 0 },
+                { x: nearest.pos.x - p.x, y: nearest.pos.y - p.y },
+                Math.min(1, conf.max_leash_px / (dist(p, nearest.pos) || 1)),
+              )
+            : { x: 0, y: 0 };
+          const d = dist(a.offset, goal);
+          a.offset = mix(
+            a.offset,
+            goal,
+            Math.min(1, (conf.drift_speed_px_s * dt) / (d || 1)),
+          );
+          p.x += a.offset.x;
+          p.y += a.offset.y;
+        }
+      }
+      if (a.kind === "cactus" && a.lane === 1)
+        a.roll = (a.roll || 0) + (p.x - a.old.x) / 9.6;
+      a.x = p.x;
+      a.y = p.y;
+      a.heading = Math.atan2(p.y - a.old.y, p.x - a.old.x);
+      if (dt === 0) {
+        a.old = { ...p };
+        a.oldLayer = a.layer;
+      }
+    }
+    const canyon = this.manifests.canyon?.m;
+    if (canyon) {
+      this.comets = [];
+      const h = canyon.comet_hazard,
+        cycle = h.sample_schedule.cycle_length_s;
+      for (
+        let n = Math.max(0, Math.floor(t / cycle) - 2);
+        n <= Math.floor(t / cycle) + 1;
+        n++
+      )
+        for (const event of h.sample_schedule.events) {
+          const age = t - (n * cycle + event.t_impact_s);
+          if (age >= -h.timeline_s.warning_shadow_grow)
+            this.comets.push({ ...event, age, spec: h.types[event.type] });
+        }
+      this.comets = this.comets
+        .filter((e) => e.age < 0)
+        .concat(
+          this.comets
+            .filter((e) => e.age >= 0)
+            .sort((a, b) => a.age - b.age)
+            .slice(0, h.timeline_s.max_active_craters),
+        );
+    }
+  }
+  hazardHit(old, p, r) {
+    for (const a of this.hazards) {
+      if (!a.visible || !a.solid || this.elapsed - a.poof < 1.2) continue;
+      if (a.kind === "train") {
+        if (
+          p.x > a.m.tunnel.hidden_between_x[0] &&
+          p.x < a.m.tunnel.hidden_between_x[1]
+        )
+          continue;
+        if (
+          Math.abs(p.x - a.x) < a.spec.body_length_px / 2 + 10 &&
+          Math.abs(p.y - a.y) < a.radius + 10
+        )
+          return a;
+        continue;
+      }
+      if (a.kind === "golden_gorge") {
+        if (!inside(p, a.m.crossings.ford.hit_zone_corners)) continue;
+        const flow = a.m.gorge.flow_direction_unit,
+          half = a.spec.hitbox.length_px / 2;
+        if (
+          segDist(
+            p,
+            { x: a.x - flow[0] * half, y: a.y - flow[1] * half },
+            { x: a.x + flow[0] * half, y: a.y + flow[1] * half },
+          ) <
+          a.spec.hitbox.radius_px + 10
+        )
+          return a;
+        continue;
+      }
+      if (a.kind === "rocket") {
+        const layer = this.layer(p)?.layer || 0;
+        if (
+          layer !== a.layer ||
+          (a.oldLayer !== undefined && layer !== a.oldLayer)
+        )
+          continue;
+      }
+      const off = a.kind === "cactus" ? a.spec.hitbox.centre_offset : [0, 0];
+      if (
+        segDist(
+          { x: 0, y: 0 },
+          { x: old.x - a.old.x - off[0], y: old.y - a.old.y - off[1] },
+          { x: p.x - a.x - off[0], y: p.y - a.y - off[1] },
+        ) <
+        a.radius * a.scale +
+          10 * (this.manifests.rocket ? this.layer(p)?.kart_scale || 1 : 1)
+      )
+        return a;
+    }
+    for (const e of this.comets || [])
+      if (
+        e.age >= -0.15 &&
+        e.age <= 0.1 &&
+        segDist(e, old, p) < e.spec.impact_radius_px + 10
+      )
+        return { kind: "comet" };
+    return null;
+  }
+  update(dt) {
+    if (this.mode === "draw" && this.drawSeconds) {
+      this.drawTime -= dt;
+      if (this.drawTime <= 0) this.sealLap();
+    }
+    if (this.mode === "countdown") {
+      this.countdown -= dt;
+      if (this.countdown <= 0) {
+        this.mode = "race";
+        this.elapsed = 0;
+      }
+      return;
+    }
+    if (this.mode !== "race") return;
+    this.elapsed += dt;
+    this.updateHazards(dt);
+    this.recordClock += dt;
+    for (const r of this.racers) {
+      if (r.finished) continue;
+      r.immune = Math.max(0, r.immune - dt);
+      r.effectLeft = Math.max(0, r.effectLeft - dt);
+      if (!r.effectLeft) r.effect = null;
+      r.reactionLeft = Math.max(0, r.reactionLeft - dt);
+      const star = r.effect === "star";
+      if (r.fallTime > 0) {
+        r.fallTime -= dt;
+        if (r.fallTime <= 0) {
+          r.d = this.findSafeAhead(r);
+          r.pos = r.route.sample(r.d);
+          r.immune = 1.5;
+        }
+        continue;
+      }
+      if (r.jump) {
+        this.advanceFlight(r, dt);
+        if (!r.jump && this.fall(r.pos)) {
+          r.fallTime = 3.9;
+          r.speed = 0;
+        }
+        continue;
+      }
+      if (r.stun > 0) {
+        r.stun -= dt;
+        if (!r.stunMotion) continue;
+      }
+      const old = { ...r.pos },
+        oldDistance = r.d;
+      const here = r.route.sample(r.d),
+        ahead = r.route.sample(Math.min(r.route.length, r.d + 24)),
+        bend = clamp(1 - Math.abs(angleDelta(ahead.a, here.a)) * 0.24, 0.45, 1);
+      let factor = (star || this.onRoad(here) ? 1 : 0.55) * bend;
+      if (r.stun > 0) factor *= r.stunMotion;
+      if (this.mask("rail_wall_mask", here) && !star) factor *= 0.42;
+      if (!star) {
+        const crater = (this.comets || []).find(
+          (e) => dist(e, here) < e.spec.impact_radius_px,
+        );
+        if (crater) factor *= crater.age < 0 ? 0.7 : 0.55;
+      }
+      if (r.effect === "turbo") factor *= 1.48;
+      if (r.effect === "tailwind") factor *= 1.2;
+      if (r.reactionLeft > 0 && r.reaction !== null)
+        factor *=
+          r.reaction < 0 ? 0.82 : 1.25 - clamp(r.reaction, 0, 1.5) * 0.12;
+      if (this.interactions) {
+        for (const other of this.racers)
+          if (
+            other !== r &&
+            !other.finished &&
+            !other.fallTime &&
+            !other.jump &&
+            this.drawLayer(other.pos) === this.drawLayer(here)
+          ) {
+            const dx = other.pos.x - here.x,
+              dy = other.pos.y - here.y,
+              forward = dx * Math.cos(here.a) + dy * Math.sin(here.a),
+              side = Math.abs(-dx * Math.sin(here.a) + dy * Math.cos(here.a));
+            if (forward > 26 && forward < 102 && side < 25) factor *= 1.13;
+          }
+      }
+      r.speed +=
+        ((this.geom.v_max || 235) * factor - r.speed) * Math.min(1, dt * 4);
+      r.d = Math.min(r.route.length, r.d + r.speed * dt);
+      r.pos = r.route.sample(r.d);
+      const jump = this.manifests.canyon?.m.jump;
+      if (
+        jump &&
+        this.mask("ramp", old) &&
+        !this.mask("ramp", r.pos) &&
+        r.pos.y < old.y &&
+        Math.abs(angleDelta(r.pos.a, -Math.PI / 2)) < 0.54
+      ) {
+        const fraction = clamp(
+            (jump.launch_lip_y - old.y) / (r.pos.y - old.y),
+            0,
+            1,
+          ),
+          lip = mix(old, r.pos, fraction),
+          start = oldDistance + (r.d - oldDistance) * fraction;
+        r.d = start;
+        r.pos = { ...lip, a: r.pos.a };
+        r.jump = {
+          left: jump.flight_time_s,
+          duration: jump.flight_time_s,
+          speed: r.speed,
+          a: r.pos.a,
+          origin: lip,
+          time: 0,
+          start,
+        };
+        this.advanceFlight(r, dt * (1 - fraction));
+      }
+      if (!r.jump && this.fall(r.pos)) {
+        r.fallTime = 3.9;
+        r.speed = 0;
+        continue;
+      }
+      if (!r.jump && !star && r.immune <= 0) {
+        const hit = this.hazardHit(old, r.pos, r);
+        if (hit) {
+          r.stun = hit.kind === "train" || hit.kind === "cactus" ? 1.45 : 0.9;
+          r.stunMotion =
+            hit.kind === "train" || hit.kind === "cactus" ? 0 : 0.4;
+          r.immune = hit.kind === "train" || hit.kind === "cactus" ? 3.7 : 1.5;
+          if (["phantom", "glow", "spiral"].includes(hit.kind))
+            hit.poof = this.elapsed;
+          else hit.hitAt = this.elapsed;
+        }
+      }
+      if (this.powerups && !r.item)
+        for (const b of this.boxes)
+          if (
+            this.elapsed >= b.ready &&
+            this.drawLayer(b) === this.drawLayer(r.pos) &&
+            segDist(b, old, r.pos) < 12
+          ) {
+            r.item = ["turbo", "tailwind", "star"][
+              Math.floor(Math.random() * 3)
+            ];
+            b.ready = this.elapsed + 7;
+            break;
+          }
+      if (r.d >= r.route.length) {
+        r.finished = true;
+        r.time = this.elapsed;
+      }
+      if (this.recordClock >= 0.1)
+        r.record.push([this.elapsed, r.pos.x, r.pos.y, r.pos.a]);
+    }
+    if (this.interactions)
+      for (let i = 0; i < this.racers.length; i++)
+        for (let j = i + 1; j < this.racers.length; j++) {
+          const a = this.racers[i],
+            b = this.racers[j],
+            key = i + "-" + j;
+          if (
+            a.finished ||
+            b.finished ||
+            a.fallTime ||
+            b.fallTime ||
+            a.jump ||
+            b.jump ||
+            this.elapsed < 1 ||
+            (this.bumpUntil[key] || 0) > this.elapsed
+          )
+            continue;
+          if (
+            this.drawLayer(a.pos) === this.drawLayer(b.pos) &&
+            dist(a.pos, b.pos) < 29
+          ) {
+            this.bumpUntil[key] = this.elapsed + 0.65;
+            if (a.effect === "star" && b.effect !== "star") {
+              b.stun = 1;
+              b.stunMotion = 0;
+              b.immune = 1;
+            } else if (b.effect === "star" && a.effect !== "star") {
+              a.stun = 1;
+              a.stunMotion = 0;
+              a.immune = 1;
+            } else {
+              a.speed *= 0.8;
+              b.speed *= 0.8;
+            }
+          }
+        }
+    if (this.recordClock >= 0.1) this.recordClock = 0;
+    if (this.racers.every((r) => r.finished)) {
+      this.results = [...this.racers].sort((a, b) => a.time - b.time);
+      this.results.forEach((r, i) => (this.cupScores[r.i] += [9, 6, 3, 1][i]));
+      const winner = this.results[0];
+      if (!this.oldGhost || winner.time < this.oldGhost.time)
+        save("kart-ghost-" + this.index + "-" + this.laps, {
+          time: winner.time,
+          record: winner.record.slice(0, 6000),
+          kart: this.karts[winner.i],
+        });
+      this.mode = "result";
+    }
+  }
+  advanceFlight(r, dt) {
+    const j = r.jump,
+      step = Math.min(dt, j.left);
+    j.left -= step;
+    j.time += step;
+    const travel = j.speed * j.time;
+    r.d = Math.min(r.route.length, j.start + travel);
+    r.pos = {
+      x: j.origin.x + Math.cos(j.a) * travel,
+      y: j.origin.y + Math.sin(j.a) * travel,
+      a: j.a,
+    };
+    if (j.left > 1e-6) return;
+    let nearest = { gap: Infinity, d: r.d };
+    for (
+      let d = j.start;
+      d <= Math.min(r.route.length, j.start + travel + 180);
+      d += 4
+    ) {
+      const gap = dist(r.route.sample(d), r.pos);
+      if (gap < nearest.gap) nearest = { gap, d };
+    }
+    if (nearest.gap < 42) r.d = nearest.d;
+    r.jump = null;
+  }
+  findSafeAhead(r) {
+    const start = Math.min(r.route.length, r.d + 9);
+    const safe = (d, span, roadOnly) => {
+      for (let t = d; t <= Math.min(r.route.length, d + span); t += 4) {
+        const p = r.route.sample(t);
+        if (this.fall(p) || (roadOnly && !this.onRoad(p))) return false;
+      }
+      return true;
+    };
+    for (const roadOnly of [true, false])
+      for (const span of [90, 48, 20])
+        for (let d = start; d <= r.route.length; d += 6)
+          if (safe(d, span, roadOnly))
+            return Math.min(r.route.length, d + Math.min(20, span * 0.25));
+    return r.route.length;
+  }
+  drawLayer(p) {
+    if (this.manifests.rocket) return this.layer(p)?.layer || 0;
+    if (this.bridge(p)) return 1;
+    return (this.geom.overpasses || []).some(
+      (b) =>
+        segDist(p, point(b.a), point(b.b)) <
+          (b.width || this.geom.road_half_width * 2) / 2 &&
+        Math.min(
+          Math.abs(
+            angleDelta(p.a || 0, Math.atan2(b.b[1] - b.a[1], b.b[0] - b.a[0])),
+          ),
+          Math.abs(
+            angleDelta(
+              (p.a || 0) + Math.PI,
+              Math.atan2(b.b[1] - b.a[1], b.b[0] - b.a[0]),
+            ),
+          ),
+        ) <
+          ((b.heading_tolerance_degrees || 42) * Math.PI) / 180,
+    )
+      ? 1
+      : 0;
+  }
+  blit(im, p, w = null, h = null, angle = 0, alpha = 1) {
+    if (!im) return;
+    const q = this.screen(p),
+      r = this.field(),
+      sx = r.w / 960,
+      sy = r.h / 600,
+      c = this.s.c;
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(q.x, q.y);
+    c.rotate(angle);
+    c.drawImage(
+      im,
+      (-(w || im.width) * sx) / 2,
+      (-(h || im.height) * sy) / 2,
+      (w || im.width) * sx,
+      (h || im.height) * sy,
+    );
+    c.restore();
+  }
+  drawHazards(pass = "ground", layer = 0) {
+    const s = this.s,
+      t = this.elapsed || 0;
+    for (const a of this.hazards) {
+      const air = ["phantom", "glow", "spiral"].includes(a.kind);
+      if ((pass === "air") !== air) continue;
+      if (a.kind === "rocket" && a.layer !== layer) continue;
+      if (a.kind !== "rocket" && layer !== 0) continue;
+      if (a.warning)
+        s.line(
+          [this.screen(point(a.record.a)), this.screen(point(a.record.b))],
+          "#ffd87eaa",
+          5,
+        );
+      if (!a.visible) continue;
+      const spec = a.spec,
+        frames = spec.idle || spec.frames?.idle;
+      const hitAge = t - a.poof;
+      if (hitAge < 1.2 && air) {
+        const poofs = spec.poof || spec.frames?.poof;
+        if (poofs && hitAge < poofs.length * 0.07)
+          this.blit(
+            this.assets.images[a.base + poofs[Math.floor(hitAge / 0.07)]],
+            a,
+          );
+        continue;
+      }
+      let file,
+        rotation = 0,
+        pos = { x: a.x, y: a.y };
+      if (a.kind === "train") file = spec.file;
+      else if (a.kind === "golden_gorge") file = spec.flow_rotated;
+      else if (a.kind === "cactus") {
+        file =
+          spec.frames?.[
+            Math.floor(t / (spec.frame_time_s || 0.18)) % spec.frames.length
+          ] || spec.image;
+        if (a.lane === 1) rotation = a.roll || 0;
+        else {
+          pos.x += spec.canvas_px[0] / 2 - spec.anchor_px[0];
+          pos.y += spec.canvas_px[1] / 2 - spec.anchor_px[1];
+        }
+      } else {
+        const activeFrames = a.charge ? spec.charge : frames;
+        file =
+          activeFrames?.[
+            Math.floor(t * (spec.anim_hz || 5)) % activeFrames.length
+          ];
+        pos.y += Math.sin(t * 3 + a.slot) * (spec.bob_px || 0);
+        if (a.kind === "rocket") rotation = a.facing || 0;
+      }
+      const scale = a.scale || 1,
+        im = this.assets.images[a.base + file],
+        shadowSpec = spec.shadow_flow_rotated || spec.shadow,
+        shadow = Array.isArray(shadowSpec)
+          ? shadowSpec[Math.floor(t * 5) % shadowSpec.length]
+          : shadowSpec;
+      if (shadow)
+        this.blit(
+          this.assets.images[a.base + shadow],
+          pos,
+          null,
+          null,
+          rotation,
+          0.65,
+        );
+      if (a.kind === "rocket" && a.record.chain) {
+        const chain = a.record.chain;
+        for (let k = chain.links; k >= 1; k--) {
+          const sign = a.record.direction === "with_lap" ? 1 : -1,
+            d = a.s - sign * k * chain.spacing_px,
+            q = this.profileAt(d),
+            offset =
+              a.record.weave.amplitude_halfwidth *
+              q.half_width *
+              Math.sin((TAU * d) / a.record.weave.period_px),
+            linkPos = {
+              x: q.x - Math.sin(q.a) * offset,
+              y: q.y + Math.cos(q.a) * offset,
+            },
+            link = this.assets.images[a.base + chain.sprite];
+          if (q.layer === layer && link)
+            this.blit(
+              link,
+              linkPos,
+              link.width * q.kart_scale,
+              link.height * q.kart_scale,
+              q.a + ((k % 2) * Math.PI) / 2,
+            );
+        }
+      }
+      if (spec.glow)
+        this.blit(
+          this.assets.images[a.base + spec.glow],
+          pos,
+          null,
+          null,
+          0,
+          0.45,
+        );
+      if (im)
+        this.blit(
+          im,
+          pos,
+          im.width * scale,
+          im.height * scale,
+          rotation,
+          a.solid ? 1 : 0.28,
+        );
+    }
+    if (pass !== "ground" || layer !== 0) return;
+    const canyon = this.manifests.canyon;
+    for (const e of this.comets || []) {
+      const p = this.screen(e),
+        rad = (e.spec.impact_radius_px * this.field().w) / 960;
+      if (e.age < 0) {
+        s.circle(p.x, p.y, rad, "#ffd47777");
+        s.text("!", p.x, p.y, 24, "#ffe7a0");
+        if (e.age > -0.38) {
+          const offset = canyon.m.comet_hazard.timeline_s.fall_from_offset_px,
+            u = clamp(-e.age / 0.38, 0, 1);
+          this.blit(
+            this.assets.images[canyon.base + e.spec.sprite_fall_rotated],
+            { x: e.x + offset[0] * u, y: e.y + offset[1] * u },
+          );
+        }
+      } else {
+        this.blit(
+          this.assets.images[
+            canyon.base +
+              (e.age < 3 ? e.spec.crater_fresh : e.spec.crater_scorched)
+          ],
+          e,
+        );
+        if (e.age < 0.4 && e.spec.impact_frames)
+          this.blit(
+            this.assets.images[
+              canyon.base +
+                e.spec.impact_frames[
+                  Math.min(
+                    e.spec.impact_frames.length - 1,
+                    Math.floor(e.age / 0.08),
+                  )
+                ]
+            ],
+            e,
+          );
+      }
+    }
+  }
+  amulets() {
+    const s = this.s,
+      r = this.field(),
+      positions = [
+        { x: r.x + 44, y: r.y + 44 },
+        { x: r.x + r.w - 44, y: r.y + 44 },
+        { x: r.x + 44, y: r.y + r.h - 44 },
+        { x: r.x + r.w - 44, y: r.y + r.h - 44 },
+      ];
+    for (let i = 0; i < this.players; i++) {
+      const p = positions[i],
+        racer = this.racers?.[i],
+        color = this.karts[i],
+        root = this.amuletRoot,
+        n = this.amuletNames?.[color],
+        socket = racer?.item || racer?.effect;
+      const sprite =
+        root &&
+        this.assets.images[
+          root +
+            `amulets/amulet_${color}_${n}_${socket ? "socket" : "plain"}.png`
+        ];
+      s.zones.push({
+        x: p.x - 36,
+        y: p.y - 36,
+        w: 72,
+        h: 72,
+        fn: () => this.press(i),
+      });
+      if (sprite) s.c.drawImage(sprite, p.x - 42, p.y - 42, 84, 84);
+      else {
+        s.circle(p.x, p.y, 34, KCOL[i]);
+        s.text("P" + (i + 1), p.x, p.y - 7, 21, "#18303f");
+      }
+      if (racer?.effect) {
+        const halo =
+          this.assets.images[
+            root +
+              `fx/halo_${racer.effect === "star" ? "gold" : racer.effect}.png`
+          ];
+        if (halo) s.c.drawImage(halo, p.x - 42, p.y - 42, 84, 84);
+      }
+      if ((this.pressedUntil?.[i] || 0) > s.time) {
+        const im = this.assets.images[root + "fx/pressed_overlay.png"];
+        if (im) s.c.drawImage(im, p.x - 42, p.y - 42, 84, 84);
+      }
+      const badge =
+        root &&
+        this.assets.images[root + `badges/badge_${color}_${n}_p${i + 1}.png`];
+      if (badge) s.c.drawImage(badge, p.x - 39, p.y - 39, 28, 28);
+      const label = racer?.item
+        ? racer.item.toUpperCase()
+        : racer?.effect
+          ? racer.effect.toUpperCase()
+          : racer?.reaction === -1 && this.mode === "countdown"
+            ? "EARLY"
+            : this.mode === "countdown"
+              ? "WAIT"
+              : this.elapsed < 1.5
+                ? "GO!"
+                : "P" + (i + 1);
+      s.text(label, p.x, p.y, 12, "#fff5d3");
+    }
+  }
+  drawRacer(racer) {
+    const s = this.s,
+      q = this.screen(racer.pos),
+      age = 3.9 - racer.fallTime,
+      shrink = racer.fallTime ? clamp(1 - (age / 0.9) * 0.85, 0.15, 1) : 1,
+      scale =
+        shrink *
+        (this.manifests.rocket ? this.layer(racer.pos)?.kart_scale || 1 : 1),
+      jump = racer.jump
+        ? Math.sin((Math.PI * racer.jump.time) / racer.jump.duration)
+        : 0,
+      pos = { x: racer.pos.x, y: racer.pos.y - jump * 25 };
+    const fallPack =
+      this.manifests.canyon || this.manifests.phantom || this.manifests.rocket;
+    if (racer.fallTime && age > 1.9 && fallPack) {
+      const clouds = fallPack.m.fall.recovery.rescue_cloud,
+        cloud =
+          this.assets.images[
+            fallPack.base + clouds[Math.floor(this.elapsed * 3) % clouds.length]
+          ];
+      this.blit(cloud, racer.pos);
+    }
+    if (racer.effect === "star")
+      s.circle(
+        q.x,
+        q.y,
+        25 * scale,
+        `hsla(${(this.elapsed * 200) % 360},90%,75%,.65)`,
+      );
+    if (!this.kartImages[this.karts[racer.i]])
+      s.box(q.x - 14, q.y - 10, 28, 20, KCOL[racer.i]);
+    else
+      this.blit(
+        this.kartImages[this.karts[racer.i]],
+        pos,
+        38 * scale * (1 + jump * 0.35),
+        28 * scale * (1 + jump * 0.35),
+        racer.pos.a +
+          (racer.stun > 0 ? this.elapsed * 14 : 0) +
+          (racer.fallTime ? (Math.min(age, 0.9) / 0.9) * Math.PI * 3 : 0),
+      );
+    if (!racer.fallTime)
+      s.text(racer.i + 1, q.x, q.y - 23 * scale, 15, KCOL[racer.i]);
+  }
+  mapDraw() {
+    const s = this.s,
+      r = this.field(),
+      c = s.c;
+    c.drawImage(this.map, r.x, r.y, r.w, r.h);
+    const gorge = this.manifests.golden_gorge;
+    if (gorge) {
+      const water = gorge.m.water_ripples,
+        im =
+          this.assets.images[
+            gorge.base +
+              water.frames[
+                Math.floor((this.elapsed || 0) / water.frame_time_s) %
+                  water.frames.length
+              ]
+          ];
+      if (im) c.drawImage(im, r.x, r.y, r.w, r.h);
+    }
+    if (this.mode === "draw") {
+      s.line(
+        this.center.points.map((p) => this.screen(p)),
+        "#ffffff55",
+        2,
+      );
+      s.line(
+        this.draft.map((p) => this.screen(p)),
+        KCOL[this.drawPlayer],
+        5,
+      );
+    }
+    if (this.showLines && this.racers)
+      for (const racer of this.racers)
+        s.line(
+          racer.route.points.map((p) => this.screen(p)),
+          KCOL[racer.i] + "66",
+          2,
+        );
+    const start = this.screen(point(this.geom.centerline[0]));
+    s.circle(start.x, start.y, 9, "#fff0b5");
+    s.text("⚑", start.x, start.y - 19, 26, "white");
+    if (!["race", "countdown", "result"].includes(this.mode)) return;
+    c.save();
+    c.beginPath();
+    c.rect(r.x, r.y, r.w, r.h);
+    c.clip();
+    let ghost = null;
+    if (this.oldGhost?.record?.length && this.elapsed <= this.oldGhost.time) {
+      const records = this.oldGhost.record;
+      let i = 0;
+      while (i < records.length - 1 && records[i + 1][0] < this.elapsed) i++;
+      const a = records[i],
+        b = records[Math.min(i + 1, records.length - 1)],
+        u = clamp((this.elapsed - a[0]) / (b[0] - a[0] || 1), 0, 1);
+      ghost = {
+        x: a[1] + (b[1] - a[1]) * u,
+        y: a[2] + (b[2] - a[2]) * u,
+        a: a[3],
+      };
+    }
+    for (let layer = 0; layer <= 1; layer++) {
+      if (layer === 1)
+        for (const im of this.overlays) c.drawImage(im, r.x, r.y, r.w, r.h);
+      this.drawHazards("ground", layer);
+      for (const b of this.boxes)
+        if (
+          this.powerups &&
+          this.elapsed >= b.ready &&
+          this.drawLayer(b) === layer
+        ) {
+          const q = this.screen(b);
+          s.box(q.x - 8, q.y - 8, 16, 16, "#eacb78", 3);
+          s.text("?", q.x, q.y, 14, "#3b5270");
+        }
+      if (ghost && this.drawLayer(ghost) === layer)
+        this.blit(
+          this.kartImages[this.oldGhost.kart],
+          ghost,
+          38,
+          28,
+          ghost.a,
+          0.25,
+        );
+      for (const racer of this.racers)
+        if (this.drawLayer(racer.pos) === layer) this.drawRacer(racer);
+      this.drawHazards("air", layer);
+    }
+    c.restore();
+    this.amulets();
+  }
+  draw() {
+    const s = this.s;
+    if (this.mode === "loading") {
+      s.title("WASTE KART");
+      s.text("Loading the selected track…", 500, s.h / 2, 28);
+      return;
+    }
+    if (this.mode === "error") {
+      s.card(
+        "Track files could not load",
+        [
+          "Keep assets/WasteKart beside the games folder.",
+          "Use GitHub Pages or a local web server.",
+        ],
+        [
+          [
+            "Try again",
+            () => (this.catalog ? this.loadTrack() : this.loadCatalog()),
+          ],
+        ],
+      );
+      s.text((this.error || "").slice(0, 110), 500, 95, 14, "#ffb6a2");
+      return;
+    }
+    if (this.mode === "menu") {
+      s.title("WASTE KART", "Draw your racing line, then watch the race");
+      const rows = [
+        [
+          "Players",
+          this.players,
+          () => {
+            this.players = (this.players % 4) + 1;
+          },
+        ],
+        [
+          "Laps",
+          this.laps,
+          () => {
+            this.laps = this.laps === 1 ? 3 : 1;
+          },
+        ],
+        [
+          "Drawing time",
+          this.drawSeconds ? this.drawSeconds + " seconds" : "Unlimited",
+          () => {
+            const options = [15, 30, 60, 0];
+            this.drawSeconds =
+              options[(options.indexOf(this.drawSeconds) + 1) % 4];
+          },
+        ],
+        [
+          "Race mode",
+          this.cupMode ? "Four-track cup" : "Single race",
+          () => {
+            this.cupMode = !this.cupMode;
+          },
+        ],
+        [
+          "Power-ups",
+          this.powerups ? "On" : "Off",
+          () => {
+            this.powerups = !this.powerups;
+          },
+        ],
+        [
+          "Reflex start",
+          this.reflex ? "On" : "Off",
+          () => {
+            this.reflex = !this.reflex;
+          },
+        ],
+      ];
+      rows.forEach(([name, v, fn], i) => {
+        s.text(name, 140, 118 + i * 62, 22, "#cbdbd9", "left");
+        s.button(String(v), 540, 92 + i * 62, 320, 52, fn);
+      });
+      s.button(
+        "Drafting / bumps: " + (this.interactions ? "On" : "Off"),
+        130,
+        474,
+        350,
+        52,
+        () => {
+          this.interactions = !this.interactions;
+        },
+      );
+      s.button(
+        "Racing lines: " + (this.showLines ? "On" : "Off"),
+        520,
+        474,
+        350,
+        52,
+        () => {
+          this.showLines = !this.showLines;
+        },
+      );
+      s.button(
+        "CHOOSE TRACK",
+        250,
+        Math.max(544, s.h - 88),
+        500,
+        60,
+        () => {
+          this.mode = "tracks";
+        },
+        true,
+      );
+      return;
+    }
+    if (this.mode === "tracks") {
+      s.title("CHOOSE A TRACK");
+      for (let cup = 0; cup < Math.ceil(this.catalog.tracks.length / 4); cup++)
+        s.button(
+          this.catalog.cups?.[cup] || "Cup " + (cup + 1),
+          40 + cup * 240,
+          100,
+          220,
+          54,
+          () => {
+            this.cupStart = cup * 4;
+            this.index = this.cupStart;
+          },
+          Math.floor(this.index / 4) === cup,
+        );
+      for (let i = 0; i < 4; i++) {
+        const idx = Math.floor(this.index / 4) * 4 + i,
+          e = this.catalog.tracks[idx];
+        if (!e) continue;
+        s.button(
+          e.name || "Track " + (idx + 1),
+          130,
+          185 + i * 74,
+          740,
+          62,
+          () => {
+            this.index = idx;
+          },
+          idx === this.index,
+        );
+      }
+      s.button("BACK", 130, s.h - 90, 230, 60, () => {
+        this.mode = "menu";
+      });
+      s.button(
+        "CONTINUE",
+        410,
+        s.h - 90,
+        460,
+        60,
+        () => {
+          if (this.cupMode) this.index = Math.floor(this.index / 4) * 4;
+          this.cupStart = Math.floor(this.index / 4) * 4;
+          this.cupRound = 0;
+          this.cupScores = [0, 0, 0, 0];
+          this.loadTrack();
+        },
+        true,
+      );
+      return;
+    }
+    if (this.mode === "karts") {
+      s.title(
+        this.entry.name || this.geom.name,
+        "Choose a kart for each player",
+      );
+      for (let i = 0; i < this.players; i++) {
+        const y = 125 + i * 85;
+        s.circle(160, y + 30, 24, KCOL[i]);
+        s.text("P" + (i + 1), 160, y + 30, 20, "#163747");
+        s.button("‹", 230, y, 65, 60, () => {
+          this.karts[i] =
+            (this.karts[i] + this.kartImages.length - 1) %
+            Math.max(1, this.kartImages.length);
+        });
+        const im = this.kartImages[this.karts[i]];
+        if (im) s.c.drawImage(im, 370, y - 3, 95, 70);
+        s.text(
+          this.catalog.karts[this.karts[i]]?.name ||
+            "Kart " + (this.karts[i] + 1),
+          610,
+          y + 30,
+          24,
+        );
+        s.button("›", 775, y, 65, 60, () => {
+          this.karts[i] =
+            (this.karts[i] + 1) % Math.max(1, this.kartImages.length);
+        });
+      }
+      s.button(
+        "DRAW ROUTES",
+        260,
+        s.h - 90,
+        480,
+        60,
+        () => {
+          this.mode = "ready";
+        },
+        true,
+      );
+      return;
+    }
+    s.title(
+      this.entry.name || this.geom.name,
+      this.mode === "draw"
+        ? `Player ${this.drawPlayer + 1} · Draw lap ${this.drawLap + 1}/${this.laps} · ${this.drawSeconds ? Math.ceil(this.drawTime) + "s" : "No time limit"}`
+        : this.mode === "race"
+          ? `${this.elapsed.toFixed(1)}s · ${this.laps} lap${this.laps === 1 ? "" : "s"}`
+          : "",
+    );
+    this.mapDraw();
+    if (this.mode === "ready")
+      s.card(
+        "Player " + (this.drawPlayer + 1) + ": draw your route",
+        [
+          "Start at the flag and draw all the way around.",
+          "Lift your finger to pause drawing; tap Done to finish.",
+        ],
+        [["Ready to draw", () => this.beginDraw()]],
+      );
+    if (this.mode === "draw") {
+      s.text(this.warning, 500, s.h - 105, 20, "#f1d9a0");
+      s.button("Clear this lap", 80, s.h - 75, 270, 55, () => this.beginDraw());
+      s.button("DONE", 650, s.h - 75, 270, 55, () => this.sealLap(), true);
+    }
+    if (this.mode === "countdown") {
+      s.text(Math.ceil(this.countdown), 500, s.h / 2, 90, "#ffdc7c");
+      s.text(
+        this.reflex
+          ? "Wait for GO, then tap your coloured player button."
+          : "Get ready!",
+        500,
+        s.h - 30,
+        21,
+      );
+    }
+    if (this.mode === "race")
+      s.text(
+        this.elapsed < 1.5
+          ? "GO!"
+          : this.powerups
+            ? "Tap your player button to use a collected item."
+            : "Follow your line to the finish!",
+        500,
+        s.h - 30,
+        24,
+        "#e7efbf",
+      );
+    if (this.mode === "result") {
+      const last = this.cupMode && this.cupRound === 3,
+        lines = this.results.map(
+          (r, i) =>
+            `${i + 1}. Player ${r.i + 1} · ${r.time.toFixed(2)}s${this.cupMode ? " · " + this.cupScores[r.i] + " cup points" : ""}`,
+        );
+      if (last) {
+        const max = Math.max(...this.cupScores.slice(0, this.players));
+        lines.push(
+          "Cup winner: " +
+            this.cupScores
+              .slice(0, this.players)
+              .map((n, i) => (n === max ? "P" + (i + 1) : null))
+              .filter(Boolean)
+              .join(" & "),
+        );
+      }
+      s.card(last ? "Cup complete!" : "Race complete!", lines, [
+        [
+          this.cupMode && !last ? "Next cup race" : "Race again",
+          () => {
+            if (this.cupMode && !last) {
+              this.cupRound++;
+              this.index = this.cupStart + this.cupRound;
+              this.loadTrack();
+            } else {
+              this.drawPlayer = 0;
+              this.drawLap = 0;
+              this.rawLaps = [];
+              this.routes = [];
+              this.cupRound = 0;
+              this.cupScores = [0, 0, 0, 0];
+              if (this.cupMode) {
+                this.index = this.cupStart;
+                this.loadTrack();
+              } else this.mode = "ready";
+            }
+          },
+        ],
+        [
+          "Game menu",
+          () => {
+            this.mode = "menu";
+          },
+        ],
+      ]);
+    }
+  }
+}
+const GAME = { name: "Waste Kart", Game: Kart, assets: {} };
+
+'use strict';
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),rand=(a,b)=>a+Math.random()*(b-a),dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),TAU=Math.PI*2;
+function saved(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
+function save(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{}}
+if(typeof Phaser==='undefined'){document.getElementById('error').hidden=false;}else{
+class HubScene extends Phaser.Scene{
+ constructor(){super('game');this.assets={home:'../assets/retBut.png',homeDown:'../assets/retBut_clicked.png',...GAME.assets};}
+ preload(){for(const [k,p] of Object.entries(this.assets))this.load.image(k,p);}
+ create(){this.keys={};this.holds=new Map();this.zones=[];this.time=0;this.paused=false;this.input.addPointer(4);this.input.keyboard.on('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(!this.paused&&!this.keys[e.key])this.gameplay?.key?.(e.key);this.keys[e.key]=true;if(e.key==='Escape')this.pause();});this.input.keyboard.on('keyup',e=>{this.keys[e.key]=false;});this.input.on('pointerdown',p=>this.down(p));this.input.on('pointermove',p=>this.move(p));this.input.on('pointerup',p=>this.up(p));this.input.on('pointerupoutside',p=>this.up(p));this.scale.on('resize',()=>this.resize());this.game.events.on('blur',()=>this.pause(true));document.addEventListener('visibilitychange',()=>{if(document.hidden)this.pause(true);});this.resize();this.gameplay=new GAME.Game(this);}
+ resize(){this.w=1000;this.h=1000*this.scale.height/this.scale.width;if(this.picture)this.picture.destroy();if(this.textures.exists('screen'))this.textures.remove('screen');this.tex=this.textures.createCanvas('screen',this.w,Math.round(this.h));this.c=this.tex.context;this.picture=this.add.image(0,0,'screen').setOrigin(0).setDisplaySize(this.scale.width,this.scale.height);this.cancel();this.gameplay?.resize?.();}
+ cancel(){this.holds.clear();this.keys={};this.gameplay?.cancel?.();}
+ pause(force=false){if(!this.gameplay)return;this.paused=force||!this.paused;this.cancel();}
+ pt(p){return{x:p.x*this.w/this.scale.width,y:p.y*this.h/this.scale.height,id:p.id};}
+ down(p){const q=this.pt(p);for(const z of [...this.zones].reverse()){if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h){this.holds.set(q.id,{zone:z});if(typeof z.fn==='function')z.fn(q);else this.gameplay?.control?.(z.fn,true,q);return;}}if(!this.paused){this.holds.set(q.id,{world:true});this.gameplay?.down?.(q);}}
+ move(p){const q=this.pt(p),hold=this.holds.get(q.id);if(!hold)return;if(hold.world&&!this.paused)this.gameplay?.move?.(q);else hold.zone?.drag?.(q);}
+ up(p){const q=this.pt(p),hold=this.holds.get(q.id);this.holds.delete(q.id);if(!hold)return;if(hold.world)this.gameplay?.up?.(q);else if(typeof hold.zone.fn==='string')this.gameplay?.control?.(hold.zone.fn,false,q);hold.zone?.up?.(q);}
+ held(name){return [...this.holds.values()].some(h=>h.zone?.fn===name);}
+ update(_,ms){const dt=Math.min(ms/1000,.05);this.time+=dt;if(!this.paused)this.gameplay?.update?.(dt);this.zones=[];this.c.fillStyle=GAME.bg||'#152e3d';this.c.fillRect(0,0,this.w,this.h);this.gameplay?.draw?.();if(this.paused){this.zones=[];this.veil();this.text('PAUSED',500,this.h/2-55,40);this.button('Resume',350,this.h/2,300,64,()=>this.pause(),true);}const home=this.button('',12,12,54,54,()=>{});home.tag='home';home.up=q=>{if(q.x>=12&&q.x<=66&&q.y>=12&&q.y<=66){this.gameplay?.persist?.();location.href='../index.html';}};const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',12,12,54,54))this.text('⌂',39,38,34);if(!this.paused)this.button('Ⅱ',934,12,54,54,()=>this.pause());this.tex.refresh();}
+ text(t,x,y,size=20,color='#f3f8ee',align='center'){this.c.font=`600 ${size}px system-ui,sans-serif`;this.c.fillStyle=color;this.c.textAlign=align;this.c.textBaseline='middle';this.c.fillText(String(t),x,y);}
+ box(x,y,w,h,color='#244c59',radius=14){const c=this.c;c.fillStyle=color;c.beginPath();c.roundRect(x,y,Math.max(0,w),Math.max(0,h),radius);c.fill();}
+ circle(x,y,r,color){this.c.fillStyle=color;this.c.beginPath();this.c.arc(x,y,Math.max(.1,r),0,TAU);this.c.fill();}
+ line(points,color,width=3){if(points.length<2)return;const c=this.c;c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.beginPath();c.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))c.lineTo(p.x,p.y);c.stroke();}
+ image(key,x,y,w,h,angle=0,flip=false){if(!this.textures.exists(key))return false;const c=this.c;c.save();c.translate(x+w/2,y+h/2);c.rotate(angle);c.scale(flip?-1:1,1);c.drawImage(this.textures.get(key).getSourceImage(),-w/2,-h/2,w,h);c.restore();return true;}
+ button(label,x,y,w,h,fn,primary=false){this.box(x,y,w,h,primary?'#c4eaa4':'#244c59');this.text(label,x+w/2,y+h/2,Math.min(21,w/9),primary?'#254638':'#f4f8ee');const z={x,y,w,h,fn};this.zones.push(z);return z;}
+ title(name,sub=''){this.text(name,500,34,28);if(sub)this.text(sub,500,66,16,'#c6d6d5');}
+ veil(){this.c.fillStyle='#102634e8';this.c.fillRect(0,0,1000,this.h);}
+ card(title,lines,buttons){this.zones=[];this.veil();const y=Math.max(110,this.h/2-140);this.text(title,500,y,38,'#d3efb3');lines.forEach((l,i)=>this.text(l,500,y+58+i*32,20));buttons.forEach((b,i)=>this.button(b[0],300,y+90+lines.length*32+i*70,400,56,b[1],i===0));}
+ field(ratio=4/3,bottom=90){const maxW=964,maxH=this.h-100-bottom;const w=Math.min(maxW,maxH*ratio),h=w/ratio;return{x:(1000-w)/2,y:90+(maxH-h)/2,w,h};}
+}
+globalThis.GameHubScene=HubScene;
+new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3d',scale:{mode:Phaser.Scale.RESIZE,width:innerWidth,height:innerHeight},input:{activePointers:5},scene:HubScene});
+
+}
+
+</script></body></html>
