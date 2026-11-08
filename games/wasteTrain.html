@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Train · GameHub</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#77b469;color:white;font:16px system-ui;overscroll-behavior:none}
+header{height:80px;display:flex;align-items:center;gap:6px;background:#295b48;padding:4px 8px;overflow-x:auto}
+#home{position:relative;flex:0 0 64px;height:64px}#home img{position:absolute;width:64px;height:64px;object-fit:contain}#home .pressed{opacity:0}#home:active .pressed{opacity:1}
+button{min-width:58px;min-height:52px;border:2px solid white;border-radius:12px;background:#438866;color:white;font:600 15px system-ui;touch-action:manipulation}
+button[aria-pressed=true]{background:#fff5c4;color:#223f34}
+#game{height:calc(100vh - 80px);height:calc(100dvh - 80px);width:100%}canvas{display:block;touch-action:none}
+#zoom{position:fixed;right:12px;bottom:12px;display:flex;gap:8px}#zoom button{font-size:28px;background:#3582a7}
+#notice{position:fixed;bottom:16px;left:12px;max-width:65%;background:#223f34e8;padding:8px 12px;border-radius:9px;pointer-events:none}
+#status{padding:30px;text-align:center}
+</style></head><body>
+<header><a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
+<button data-mode="tiles" aria-pressed="true">▦<br>Tiles</button><button data-mode="draw">✎<br>Draw</button><button data-mode="erase">⌫<br>Erase</button><button data-mode="move">✥<br>Move</button><button id="follow">🚂<br>Train</button><button id="new">↻<br>New</button></header>
+<div id="game"><p id="status" role="status">Loading railway…</p></div>
+<div id="zoom"><button id="out" aria-label="Zoom out">−</button><button id="in" aria-label="Zoom in">+</button></div>
+<div id="notice" role="status">Place tiles or draw rails. Use two fingers to move and zoom.</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const W=1485,H=1100,CELL=55;
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const mix=(a,b,t)=>({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});
+const key=p=>p.x.toFixed(3)+','+p.y.toFixed(3);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const pos=([x,y])=>({x:(x+.5)*CELL,y:(y+.5)*CELL});
+const tileKey=(x,y)=>x+','+y;
+const $=id=>document.getElementById(id);
+function projection(p,a,b){
+  const dx=b.x-a.x,dy=b.y-a.y,n=dx*dx+dy*dy;
+  const t=n?clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/n,0,1):0;
+  const q=mix(a,b,t);return {q,t,d:dist(p,q)};
+}
+function intersection(a,b,c,d){
+  const vx=b.x-a.x,vy=b.y-a.y,wx=d.x-c.x,wy=d.y-c.y,det=vx*wy-vy*wx;
+  if(Math.abs(det)<1e-7)return null;
+  const dx=c.x-a.x,dy=c.y-a.y,t=(dx*wy-dy*wx)/det,u=(dx*vy-dy*vx)/det;
+  return t>=-1e-6&&t<=1.000001&&u>=-1e-6&&u<=1.000001?{t:clamp(t,0,1),u:clamp(u,0,1)}:null;
+}
+function smooth(raw){
+  const out=[raw[0]];
+  for(let i=0;i<raw.length-1;i++){
+    const a=raw[Math.max(0,i-1)],b=raw[i],c=raw[i+1],d=raw[Math.min(raw.length-1,i+2)];
+    const steps=Math.max(2,Math.ceil(dist(b,c)/7));
+    for(let j=1;j<=steps;j++){
+      const t=j/steps,t2=t*t,t3=t2*t;
+      const coordinate=k=>.5*(2*b[k]+(-a[k]+c[k])*t+(2*a[k]-5*b[k]+4*c[k]-d[k])*t2+(-a[k]+3*b[k]-3*c[k]+d[k])*t3);
+      out.push({x:clamp(coordinate('x'),0,W),y:clamp(coordinate('y'),0,H)});
+    }
+  }
+  return out;
+}
+class Network{
+  constructor(grid,curves,structures){
+    this.raw=[];this.nodes=new Map();
+    const add=(a,b,kind='normal',group='',index=0)=>{if(dist(a,b)>.1)this.raw.push({a,b,kind,group,index});};
+    for(const cell of grid){
+      const [x,y]=cell.split(',').map(Number),p=pos([x,y]);
+      for(const [dx,dy] of [[1,0],[0,1]])if(grid.has(tileKey(x+dx,y+dy)))add(p,pos([x+dx,y+dy]));
+      if(![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>grid.has(tileKey(x+dx,y+dy))))add({x:p.x-11,y:p.y},{x:p.x+11,y:p.y});
+    }
+    curves.forEach((curve,i)=>{for(let j=1;j<curve.length;j++)add(curve[j-1],curve[j],'normal','curve'+i,j);});
+    structures.forEach(s=>add(s.a,s.b,s.kind));
+    const splits=this.raw.map(e=>[{t:0,p:e.a},{t:1,p:e.b}]),buckets=new Map();
+    this.raw.forEach((e,i)=>{
+      if(e.kind!=='normal')return;
+      const cells=[],candidates=new Set();
+      for(let x=Math.floor(Math.min(e.a.x,e.b.x)/48);x<=Math.floor(Math.max(e.a.x,e.b.x)/48);x++){
+        for(let y=Math.floor(Math.min(e.a.y,e.b.y)/48);y<=Math.floor(Math.max(e.a.y,e.b.y)/48);y++){
+          const cell=x+','+y;cells.push(cell);(buckets.get(cell)||[]).forEach(n=>candidates.add(n));
+        }
+      }
+      for(const j of candidates){
+        const other=this.raw[j];
+        if(e.group&&e.group===other.group&&Math.abs(e.index-other.index)<=1)continue;
+        const hit=intersection(e.a,e.b,other.a,other.b);
+        if(hit){const p=mix(e.a,e.b,hit.t);splits[i].push({t:hit.t,p});splits[j].push({t:hit.u,p});}
+      }
+      for(const cell of cells){if(!buckets.has(cell))buckets.set(cell,[]);buckets.get(cell).push(i);}
+    });
+    // Collinear stroke endpoints must split the rail they touch as well.
+    curves.forEach((curve,index)=>{
+      for(const endpoint of [curve[0],curve[curve.length-1]]){
+        this.raw.forEach((e,i)=>{
+          if(e.kind!=='normal'||e.group==='curve'+index)return;
+          const hit=projection(endpoint,e.a,e.b);
+          if(hit.d<.85){splits[i].push({t:hit.t,p:hit.q});this.link(endpoint,hit.q,'normal');}
+        });
+      }
+    });
+    this.raw.forEach((e,i)=>{
+      const ordered=splits[i].sort((a,b)=>a.t-b.t);
+      for(let j=1;j<ordered.length;j++)this.link(ordered[j-1].p,ordered[j].p,e.kind);
+    });
+  }
+  link(a,b,kind){
+    const ka=key(a),kb=key(b),length=dist(a,b);
+    if(ka===kb||length<.001)return;
+    for(const [id,p] of [[ka,a],[kb,b]])if(!this.nodes.has(id))this.nodes.set(id,{p,links:new Map()});
+    this.nodes.get(ka).links.set(kb,{length,kind});this.nodes.get(kb).links.set(ka,{length,kind});
+  }
+  nearest(p){
+    let result=p,best=39;
+    for(const e of this.raw){if(e.kind!=='normal')continue;const hit=projection(p,e.a,e.b);if(hit.d<best){best=hit.d;result=hit.q;}}
+    for(const node of this.nodes.values())if(dist(p,node.p)<best){best=dist(p,node.p);result=node.p;}
+    return {...result};
+  }
+}
+const assets={
+ station_old:['station.png',245,163],station_blue:['stations/station_blue.png',220,160],
+ station_red:['stations/station_red.png',220,160],station_green:['stations/station_green.png',220,160],
+ tree_broadleaf:['scenery/tree_broadleaf.png',105,105],tree_pine:['scenery/tree_pine.png',76,114],
+ rock_cluster:['scenery/rock_cluster.png',110,83],flower_bush:['scenery/flower_bush.png',62,49],
+ pond:['scenery/pond.png',270,185],flower_patch:['scenery/flower_patch.png',55,40],grass_tuft:['scenery/grass_tuft.png',42,34],
+ tunnel_horizontal:['scenery/tunnel_horizontal.png',629,231],bridge_horizontal:['scenery/bridge_horizontal.png',553,227],
+ locomotive_red:['trains/locomotive_red.png',91,57],locomotive_blue:['trains/locomotive_blue.png',91,57],
+ wagon_passenger_red:['trains/wagon_passenger_red.png',74,49],wagon_passenger_blue:['trains/wagon_passenger_blue.png',74,49],
+ wagon_freight_green:['trains/wagon_freight_green.png',70,49],wagon_logs:['trains/wagon_logs.png',74,49],
+ wagon_tanker_gold:['trains/wagon_tanker_gold.png',74,49],wagon_coal_gray:['trains/wagon_coal_gray.png',74,49]
+};
+if(!window.Phaser)$('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+function launch(){
+ class Railway extends Phaser.Scene{
+  preload(){
+    for(const [name,[path]] of Object.entries(assets))this.load.image(name,'../assets/wasteTrain/'+path);
+    this.load.image('grass','../assets/hungryHedgie/grass.png');
+    this.load.json('manifest','../assets/wasteTrain/sprites_manifest.json');
+  }
+  create(){
+    $('status').hidden=true;
+    this.mode='tiles';this.follow=false;this.pointers=new Map();this.gesture=null;
+    this.camera=this.cameras.main;this.camera.setBounds(0,0,W,H);
+    this.group=this.add.group();
+    this.manifest=new Map((this.cache.json.get('manifest')?.sprites||[]).map(e=>[e.name,e]));
+    this.input.addPointer(3);
+    document.querySelectorAll('[data-mode]').forEach(button=>button.onclick=()=>{
+      this.cancel();this.mode=button.dataset.mode;this.follow=false;this.refreshButtons();
+    });
+    $('follow').onclick=()=>{this.follow=!this.follow;this.refreshButtons();};
+    $('new').onclick=()=>{
+      if(this.confirmUntil>performance.now()){this.newWorld();this.confirmUntil=0;this.notice('Build a new railway!');}
+      else{this.confirmUntil=performance.now()+2600;this.notice('Tap New again to start a new world.');}
+    };
+    $('in').onclick=()=>this.zoomAt(1.25,{x:400,y:260});
+    $('out').onclick=()=>this.zoomAt(.8,{x:400,y:260});
+    this.input.on('pointerdown',p=>this.down(p));
+    this.input.on('pointermove',p=>this.move(p));
+    this.input.on('pointerup',p=>this.up(p));
+    this.input.on('pointerupoutside',p=>this.up(p,true));
+    this.input.on('wheel',(p,objects,dx,dy)=>this.zoomAt(Math.exp(-dy*.001),p));
+    const cancel=()=>{this.cancel();this.pointers.clear();};
+    window.addEventListener('blur',cancel);this.game.canvas.addEventListener('touchcancel',cancel);
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)cancel();});
+    this.newWorld();
+  }
+  notice(text){$('notice').textContent=text;clearTimeout(this.noticeTimer);this.noticeTimer=setTimeout(()=>$('notice').textContent='Two fingers to pan and zoom',5000);}
+  refreshButtons(){
+    document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===this.mode)));
+    $('follow').setAttribute('aria-pressed',String(this.follow));
+  }
+  art(name,p,depth=3){
+    let sprite;
+    if(this.textures.exists(name)){
+      const [,w,h]=assets[name],source=this.textures.get(name).getSourceImage();
+      sprite=this.add.image(p.x,p.y,name).setScale(Math.min(w/source.width,h/source.height));
+    }else sprite=this.add.rectangle(p.x,p.y,35,28,name.startsWith('station')?0xe0a65a:0x416f42).setStrokeStyle(2,0xfff7d3);
+    sprite.setDepth(depth);this.group.add(sprite);return sprite;
+  }
+  newWorld(){
+    this.cancel();this.group.clear(true,true);this.train=null;this.follow=false;
+    this.grid=new Set();this.curves=[];this.pinned=new Set();this.blocked=new Set();
+    if(this.textures.exists('grass'))this.group.add(this.add.image(0,0,'grass').setOrigin(0).setDisplaySize(W,H).setDepth(-2));
+    else this.group.add(this.add.rectangle(W/2,H/2,W,H,0x77b469).setDepth(-2));
+    this.stations=[[3,4],[23,4],[4,16],[23,16]];
+    this.structures=[{left:[10,5],right:[17,5],kind:'tunnel'},{left:[8,15],right:[15,15],kind:'tunnel'},{left:[17,11],right:[22,11],kind:'bridge'}];
+    for(const t of this.stations)for(const [x,y] of [t,[t[0],t[1]+1]])this.pinned.add(tileKey(x,y));
+    for(const s of this.structures){
+      s.a=pos(s.left);s.b=pos(s.right);
+      for(const [x,y] of [s.left,s.right,[s.left[0]-1,s.left[1]],[s.right[0]+1,s.right[1]]])this.pinned.add(tileKey(x,y));
+      for(let x=s.left[0]+1;x<s.right[0];x++)this.blocked.add(tileKey(x,s.left[1]));
+    }
+    this.grid=new Set(this.pinned);
+    this.rails=this.add.graphics().setDepth(1);this.preview=this.add.graphics().setDepth(8);
+    this.guide=this.add.graphics().setDepth(0);
+    this.group.addMultiple([this.rails,this.preview,this.guide]);
+    this.guide.lineStyle(1,0xffffee,.15);
+    for(let x=0;x<=W;x+=CELL)this.guide.lineBetween(x,0,x,H);
+    for(let y=0;y<=H;y+=CELL)this.guide.lineBetween(0,y,W,y);
+    this.art('pond',{x:1100,y:680},0);
+    this.scenery=[];
+    const decor=['tree_broadleaf','tree_pine','rock_cluster','flower_bush','flower_patch','grass_tuft'];
+    for(let i=0;i<90;i++){
+      const p={x:Phaser.Math.Between(40,W-40),y:Phaser.Math.Between(50,H-40)};
+      if(this.structures.some(s=>p.x>s.a.x-70&&p.x<s.b.x+70&&Math.abs(p.y-s.a.y)<120)||this.stations.some(t=>dist(p,pos(t))<160))continue;
+      this.scenery.push({p,sprite:this.art(Phaser.Utils.Array.GetRandom(decor),p)});
+    }
+    this.stations.forEach((t,i)=>this.art(['station_old','station_blue','station_red','station_green'][i],{x:pos(t).x,y:pos(t).y-65},4));
+    for(const s of this.structures)this.structureArt(s);
+    this.net=new Network(this.grid,this.curves,this.structures);this.renderRails();
+    this.cx=65;this.cy=70;this.zoom=1;this.syncCamera();this.refreshButtons();
+  }
+  structureArt(s){
+    const name=s.kind==='tunnel'?'tunnel_horizontal':'bridge_horizontal';
+    if(!this.textures.exists(name))return;
+    const ports=this.manifest.get(name)?.entry_points_norm||{};
+    const left=ports.left_port||ports.left_rail||(s.kind==='tunnel'?[.015,.70]:[.012,.36]);
+    const right=ports.right_port||ports.right_rail||(s.kind==='tunnel'?[.985,.70]:[.988,.36]);
+    const source=this.textures.get(name).getSourceImage(),width=(s.b.x-s.a.x)/(right[0]-left[0]),height=width*source.height/source.width;
+    this.group.add(this.add.image(s.a.x-width*left[0],s.a.y-height*left[1],name).setOrigin(0).setDisplaySize(width,height).setDepth(s.kind==='tunnel'?7:2));
+  }
+  renderRails(){
+    const g=this.rails;g.clear();
+    const edges=this.net.raw.filter(e=>e.kind!=='tunnel'||!this.textures.exists('tunnel_horizontal'));
+    for(const e of edges){g.lineStyle(42,0x7b6046).lineBetween(e.a.x,e.a.y,e.b.x,e.b.y);g.lineStyle(34,0xd4b984).lineBetween(e.a.x,e.a.y,e.b.x,e.b.y);}
+    for(const e of edges){
+      const length=dist(e.a,e.b),nx=-(e.b.y-e.a.y)/length,ny=(e.b.x-e.a.x)/length;
+      for(let s=5;s<length;s+=15){const p=mix(e.a,e.b,s/length);g.lineStyle(6,0x70422b).lineBetween(p.x+nx*20,p.y+ny*20,p.x-nx*20,p.y-ny*20);}
+      for(const sign of [-1,1]){
+        const ax=e.a.x+nx*12*sign,ay=e.a.y+ny*12*sign,bx=e.b.x+nx*12*sign,by=e.b.y+ny*12*sign;
+        g.lineStyle(7,0x334048).lineBetween(ax,ay,bx,by);g.lineStyle(3,0xe6edeb).lineBetween(ax,ay,bx,by);
+      }
+    }
+    for(const item of this.scenery)item.sprite.setVisible(!edges.some(e=>projection(item.p,e.a,e.b).d<45));
+  }
+  world(p){return {x:this.cx+p.x/this.zoom,y:this.cy+p.y/this.zoom};}
+  syncCamera(){
+    this.zoom=clamp(this.zoom,Math.max(800/W,520/H),1.55);
+    this.cx=clamp(this.cx,0,W-800/this.zoom);this.cy=clamp(this.cy,0,H-520/this.zoom);
+    this.camera.setZoom(this.zoom).centerOn(this.cx+400/this.zoom,this.cy+260/this.zoom);
+  }
+  zoomAt(factor,p){const anchor=this.world(p);this.zoom=clamp(this.zoom*factor,Math.max(800/W,520/H),1.55);this.cx=anchor.x-p.x/this.zoom;this.cy=anchor.y-p.y/this.zoom;this.syncCamera();}
+  cancel(){this.gesture=null;this.preview?.clear();}
+  down(pointer){
+    if(pointer.button>0)return;
+    this.pointers.set(pointer.id,{x:pointer.x,y:pointer.y});
+    this.follow=false;this.refreshButtons();
+    if(this.pointers.size>1){this.cancel();return;}
+    const p=this.world(pointer);
+    this.gesture={id:pointer.id,last:{x:pointer.x,y:pointer.y},points:[p],grid:new Set(this.grid),curves:this.curves.map(c=>c.slice()),lastWorld:p,changed:false};
+    if(this.mode==='tiles'||this.mode==='erase')this.edit(p);
+  }
+  move(pointer){
+    if(!this.pointers.has(pointer.id))return;
+    const before=[...this.pointers.values()];
+    this.pointers.set(pointer.id,{x:pointer.x,y:pointer.y});
+    if(this.pointers.size>=2){
+      const after=[...this.pointers.values()],old=mix(before[0],before[1],.5),now=mix(after[0],after[1],.5);
+      if(dist(before[0],before[1])>25)this.zoomAt(dist(after[0],after[1])/dist(before[0],before[1]),now);
+      this.cx-=(now.x-old.x)/this.zoom;this.cy-=(now.y-old.y)/this.zoom;this.syncCamera();return;
+    }
+    const gesture=this.gesture;if(!gesture||gesture.id!==pointer.id)return;
+    const p=this.world(pointer);
+    if(this.mode==='move'){
+      this.cx-=(pointer.x-gesture.last.x)/this.zoom;this.cy-=(pointer.y-gesture.last.y)/this.zoom;this.syncCamera();
+    }else if(this.mode==='draw'){
+      if(dist(p,gesture.points[gesture.points.length-1])>=7)gesture.points.push(p);
+      this.preview.clear().lineStyle(7,0xffe763).strokePoints(gesture.points,false);
+    }else{
+      const count=Math.max(1,Math.ceil(dist(gesture.lastWorld,p)/12));
+      for(let i=1;i<=count;i++)this.edit(mix(gesture.lastWorld,p,i/count));
+    }
+    gesture.last={x:pointer.x,y:pointer.y};gesture.lastWorld=p;
+  }
+  edit(p){
+    const g=this.gesture,x=Math.floor(p.x/CELL),y=Math.floor(p.y/CELL),cell=tileKey(x,y);
+    if(x<0||x>=27||y<0||y>=20)return;
+    if(this.mode==='tiles'&&!this.blocked.has(cell)){g.grid.add(cell);g.changed=true;}
+    if(this.mode==='erase'){
+      if(!this.pinned.has(cell)){g.changed=g.grid.delete(cell)||g.changed;}
+      g.curves=g.curves.filter(curve=>{
+        const hit=curve.some((q,i)=>i&&projection(p,curve[i-1],q).d<=21);if(hit)g.changed=true;return !hit;
+      });
+    }
+    this.preview.clear().lineStyle(4,this.mode==='erase'?0xef9f50:0xffe763).strokeRect(x*CELL,y*CELL,CELL,CELL);
+  }
+  up(pointer,outside=false){
+    const g=this.gesture;
+    if(g&&g.id===pointer.id&&!outside){
+      if(this.mode==='draw'){
+        const end=this.world(pointer);if(dist(g.points[g.points.length-1],end)>2)g.points.push(end);
+        if(g.points.length>=2&&g.points.reduce((sum,p,i)=>sum+(i?dist(p,g.points[i-1]):0),0)>30){
+          g.points[0]=this.net.nearest(g.points[0]);g.points[g.points.length-1]=this.net.nearest(g.points[g.points.length-1]);
+          g.curves.push(smooth(g.points));g.changed=true;
+        }
+      }
+      if(g.changed){
+        this.grid=g.grid;this.curves=g.curves;this.net=new Network(this.grid,this.curves,this.structures);this.renderRails();
+        if(!this.train)this.startTrain(g.points[g.points.length-1]);
+        else if(this.train.stopped)this.depart(this.train.b,this.train.a);
+      }
+    }
+    this.pointers.delete(pointer.id);this.cancel();
+  }
+  startTrain(focus){
+    const entries=[...this.net.nodes.entries()].filter(([,n])=>n.links.size);
+    entries.sort((a,b)=>dist(a[1].p,focus)-dist(b[1].p,focus));
+    if(!entries.length)return;
+    const names=['locomotive_red',...Phaser.Utils.Array.Shuffle(['wagon_passenger_red','wagon_passenger_blue','wagon_freight_green','wagon_logs','wagon_tanker_gold','wagon_coal_gray']).slice(0,3)];
+    this.train={a:null,b:entries[0][0],visits:new Map(),history:[],odometer:0,stopped:true,sprites:names.map(name=>this.art(name,focus,6))};
+    this.train.sprites.forEach(sprite=>sprite.setVisible(false));this.depart(this.train.b,null);
+  }
+  depart(node,previous){
+    const t=this.train,current=this.net.nodes.get(node);
+    if(!current||!current.links.size){t.stopped=true;return;}
+    let exits=[...current.links.keys()].filter(n=>n!==previous);
+    if(!exits.length)exits=[...current.links.keys()];
+    const edgeId=n=>[node,n].sort().join('|');
+    const least=Math.min(...exits.map(n=>t.visits.get(edgeId(n))||0));
+    exits=exits.filter(n=>(t.visits.get(edgeId(n))||0)===least);
+    if(previous&&this.net.nodes.has(previous)&&Math.random()<.75){
+      const prev=this.net.nodes.get(previous).p;
+      const heading=Math.atan2(current.p.y-prev.y,current.p.x-prev.x);
+      exits.sort((a,b)=>{
+        const score=id=>{const p=this.net.nodes.get(id).p;return Math.cos(Math.atan2(p.y-current.p.y,p.x-current.p.x)-heading);};
+        return score(b)-score(a);
+      });
+    }else Phaser.Utils.Array.Shuffle(exits);
+    const next=exits[0],link=current.links.get(next);
+    t.a=node;t.b=next;t.from={...current.p};t.to={...this.net.nodes.get(next).p};t.kind=link.kind;t.length=link.length;t.travel=0;t.stopped=false;
+    t.visits.set(edgeId(next),(t.visits.get(edgeId(next))||0)+1);
+  }
+  update(time,delta){
+    this.guide?.setVisible(this.mode==='tiles');
+    const t=this.train;if(!t)return;
+    let remaining=Math.min(delta/1000,.05)*66;
+    for(let step=0;step<80&&remaining>0&&!t.stopped;step++){
+      const move=Math.min(remaining,t.length-t.travel);t.travel+=move;t.odometer+=move;remaining-=move;
+      const p=mix(t.from,t.to,t.travel/t.length),angle=Math.atan2(t.to.y-t.from.y,t.to.x-t.from.x);
+      t.history.push({distance:t.odometer,p,angle,kind:t.kind});
+      if(t.travel>=t.length-1e-6)this.depart(t.b,t.a);
+    }
+    while(t.history.length>2&&t.history[1].distance<t.odometer-300)t.history.shift();
+    t.sprites.forEach((sprite,i)=>{
+      const target=t.odometer-i*58;
+      if(!t.history.length||target<t.history[0].distance){sprite.setVisible(false);return;}
+      let sample=t.history[t.history.length-1];
+      for(let j=1;j<t.history.length;j++)if(t.history[j].distance>=target){
+        const a=t.history[j-1],b=t.history[j],ratio=clamp((target-a.distance)/Math.max(.001,b.distance-a.distance),0,1);
+        sample={p:mix(a.p,b.p,ratio),angle:b.angle,kind:ratio<.5?a.kind:b.kind};break;
+      }
+      sprite.setVisible(sample.kind!=='tunnel').setPosition(sample.p.x,sample.p.y);
+      const left=Math.cos(sample.angle)<-.035,tilt=clamp(Math.atan2(Math.sin(sample.angle),Math.max(.2,Math.abs(Math.cos(sample.angle)))),-Math.PI/5,Math.PI/5);
+      if(sprite.setFlipX)sprite.setFlipX(left);
+      sprite.setRotation(left?-tilt:tilt);
+      if(i===0&&this.follow){this.cx+=(sample.p.x-400/this.zoom-this.cx)*Math.min(1,delta/1000*5);this.cy+=(sample.p.y-260/this.zoom-this.cy)*Math.min(1,delta/1000*5);this.syncCamera();}
+    });
+  }
+ }
+ new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:520,backgroundColor:'#77b469',scene:Railway,
+ scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
+}
+</script></body></html>

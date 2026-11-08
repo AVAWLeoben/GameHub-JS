@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Paint · GameHub</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f2e8;color:#243c40;font:16px system-ui;overscroll-behavior:none}
+#app{height:100vh;height:100dvh;display:grid;grid-template-columns:88px minmax(0,1fr) 88px;grid-template-rows:minmax(0,1fr) auto;gap:10px;padding:12px}
+.tools{display:flex;flex-direction:column;gap:12px;align-items:center;overflow-y:auto}
+.icon{position:relative;display:block;flex-shrink:0;width:76px;height:76px;padding:2px;border:3px solid transparent;border-radius:14px;background:transparent;touch-action:manipulation}
+.icon img{width:100%;height:100%;object-fit:contain}.icon .pressed{position:absolute;inset:2px;width:calc(100% - 4px);height:calc(100% - 4px);opacity:0}
+.icon:active .pressed{opacity:1}.icon[aria-pressed=true]{border-color:#377888;background:#d8edf0}
+button{cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid #245aaa;outline-offset:2px}
+#game{min-width:0;min-height:0;align-self:stretch}canvas{display:block;touch-action:none}
+#palette{grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:center;gap:7px;padding:4px}
+.swatch{width:54px;height:54px;border:3px solid white;border-radius:50%;box-shadow:0 0 0 1px #777;touch-action:manipulation}
+.swatch[aria-pressed=true]{outline:4px solid #245767;outline-offset:1px}
+#status{padding:20px;text-align:center}dialog{max-width:90vw;max-height:90dvh;border:2px solid #567;border-radius:16px;padding:18px;overflow:auto}
+dialog img{display:block;max-width:100%;max-height:55dvh;border:1px solid #aaa;margin:12px auto}
+dialog button,dialog a{display:inline-block;padding:12px 18px;margin:5px;min-height:48px;border-radius:8px;background:#285d68;color:white;font:inherit;border:0;text-decoration:none}
+@media(max-width:600px){#app{grid-template-columns:60px minmax(0,1fr) 60px;gap:4px;padding:6px}.icon{width:56px;height:56px}.tools{gap:8px}.swatch{width:44px;height:44px}}
+@media(max-height:450px){.icon{width:56px;height:56px}.tools{gap:4px}.swatch{width:44px;height:44px}}
+</style></head><body>
+<main id="app">
+<nav class="tools" aria-label="Drawing actions">
+<a class="icon" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
+<button class="icon" id="save" aria-label="Save drawing"><img src="../assets/saveBut.png" alt=""></button>
+<button class="icon" id="clear" aria-label="Clear drawing"><img src="../assets/wastePaint/clear_button.png" alt=""></button>
+</nav>
+<div id="game" aria-label="Drawing canvas"><p id="status">Loading Waste Paint…</p></div>
+<nav id="brushes" class="tools" aria-label="Drawing tools"></nav>
+<div id="palette" role="group" aria-label="Paint colours"></div>
+</main>
+<dialog id="export"><h2>Your drawing</h2><p>Download your picture, or touch and hold it to save or share on iPad.</p>
+<img id="preview" alt="Your finished drawing"><a id="download" download="my_drawing.png">Download PNG</a><button id="share" hidden>Share</button><button id="close">Back to painting</button></dialog>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const colours=[
+ ['Charcoal','#3c3c3c'],['Pastel red','#ff6961'],['Sky blue','#87ceeb'],
+ ['Light green','#90ee90'],['Light yellow','#ffff99'],['Light orange','#ffb266'],
+ ['Light purple','#d8bfd8'],['Light pink','#ffb6c1'],['Light brown','#cd853f'],
+ ['Powder blue','#add8e6'],['Orchid','#ee82ee']
+];
+const tools=[
+ {id:'pencil',label:'Pencil',radius:4},
+ {id:'brush_small',label:'Small brush',radius:8},
+ {id:'brush_large',label:'Large brush',radius:12},
+ {id:'eraser',label:'Eraser',radius:12}
+];
+let selectedTool=tools[0],selectedColour=colours[0][1],scene,exportURL,exportFile;
+function refresh(){
+ document.querySelectorAll('[data-tool]').forEach(button=>{
+   const active=button.dataset.tool===selectedTool.id;
+   button.setAttribute('aria-pressed',String(active));
+   button.firstChild.src='../assets/wastePaint/'+button.dataset.tool+(active?'_active':'')+'.png';
+ });
+ document.querySelectorAll('[data-colour]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.colour===selectedColour)));
+}
+for(const tool of tools){
+ const button=document.createElement('button');button.className='icon';button.dataset.tool=tool.id;
+ button.setAttribute('aria-label',tool.label);
+ const image=document.createElement('img');image.alt='';button.append(image);
+ button.onclick=()=>{scene?.strokes.clear();selectedTool=tool;refresh();};
+ $('brushes').append(button);
+}
+for(const [name,colour] of colours){
+ const button=document.createElement('button');button.className='swatch';button.dataset.colour=colour;
+ button.style.background=colour;button.setAttribute('aria-label',name);
+ button.onclick=()=>{scene?.strokes.clear();selectedColour=colour;refresh();};
+ $('palette').append(button);
+}
+refresh();
+$('close').onclick=()=>$('export').close();
+$('share').onclick=async()=>{
+ try{await navigator.share({files:[exportFile],title:'My drawing'});}
+ catch(error){if(error.name!=='AbortError')$('share').textContent='Use Download PNG';}
+};
+$('save').onclick=()=>{
+ if(!scene)return;
+ scene.strokes.clear();
+ // Export the artwork surface directly, excluding all controls and framing.
+ scene.paper.toBlob(blob=>{
+   if(!blob)return;
+   if(exportURL)URL.revokeObjectURL(exportURL);
+   exportURL=URL.createObjectURL(blob);
+   exportFile=new File([blob],'my_drawing.png',{type:'image/png'});
+   $('preview').src=exportURL;$('download').href=exportURL;
+   $('share').hidden=!(navigator.canShare&&navigator.canShare({files:[exportFile]}));
+   $('share').textContent='Share';
+   if(!$('export').open)$('export').showModal();
+ },'image/png');
+};
+$('clear').onclick=()=>{if(scene){scene.strokes.clear();scene.ctx.fillStyle='white';scene.ctx.fillRect(0,0,540,420);scene.dirty=true;}};
+if(!window.Phaser)$('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+function launch(){
+ class Paint extends Phaser.Scene{
+  create(){
+   scene=this;$('status').hidden=true;
+   this.strokes=new Map();
+   const texture=this.textures.createCanvas('artwork',540,420);
+   this.paper=texture.canvas;this.ctx=texture.context;this.texture=texture;
+   this.ctx.fillStyle='white';this.ctx.fillRect(0,0,540,420);texture.refresh();
+   this.add.rectangle(274,214,548,428,0x5f5f5f);
+   this.add.image(4,4,'artwork').setOrigin(0);
+   this.input.addPointer(2);
+   this.input.on('pointerdown',pointer=>{
+     if(pointer.button>0||this.strokes.size>=2||$('export').open)return;
+     const p=this.point(pointer);if(!this.inside(p))return;
+     const stroke={p,colour:selectedTool.id==='eraser'?'#ffffff':selectedColour,radius:selectedTool.radius};
+     this.strokes.set(pointer.id,stroke);this.paint(stroke,p);
+   });
+   this.input.on('pointermove',pointer=>{
+     const stroke=this.strokes.get(pointer.id);if(!stroke)return;
+     const p=this.point(pointer);
+     if(!pointer.isDown||!this.inside(p)){this.strokes.delete(pointer.id);return;}
+     this.paint(stroke,p);stroke.p=p;
+   });
+   const release=pointer=>this.strokes.delete(pointer.id);
+   this.input.on('pointerup',release);this.input.on('pointerupoutside',release);
+   const cancel=()=>this.strokes.clear();
+   window.addEventListener('blur',cancel);
+   document.addEventListener('visibilitychange',cancel);
+   this.game.canvas.addEventListener('touchcancel',cancel);
+   this.scale.on('resize',cancel);
+  }
+  point(pointer){return {x:pointer.x-4,y:pointer.y-4};}
+  inside(p){return p.x>=0&&p.x<540&&p.y>=0&&p.y<420;}
+  paint(stroke,p){
+   const ctx=this.ctx;
+   ctx.strokeStyle=stroke.colour;ctx.fillStyle=stroke.colour;
+   ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=stroke.radius*2;
+   ctx.beginPath();ctx.moveTo(stroke.p.x,stroke.p.y);ctx.lineTo(p.x,p.y);ctx.stroke();
+   ctx.beginPath();ctx.arc(p.x,p.y,stroke.radius,0,Math.PI*2);ctx.fill();
+   this.dirty=true;
+  }
+  update(){if(this.dirty){this.texture.refresh();this.dirty=false;}}
+ }
+ new Phaser.Game({type:Phaser.AUTO,parent:'game',width:548,height:428,backgroundColor:'#f5f2e8',
+   scene:Paint,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},
+   audio:{noAudio:true},render:{antialias:true}});
+}
+</script></body></html>
