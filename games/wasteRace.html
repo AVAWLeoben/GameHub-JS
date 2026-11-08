@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waste Race · GameHub</title>
+<style>body{margin:0;background:#1e3036;color:white;font:18px system-ui;overscroll-behavior:none}#game{width:100%;height:100vh;height:100dvh}canvas{display:block;touch-action:none}#status{position:absolute;top:40%;width:100%;text-align:center;white-space:pre-wrap;pointer-events:none}</style></head>
+<body><main id="game" aria-label="Waste Race"><p id="status">Loading Waste Race…</p></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+<script>
+'use strict';
+const BINS=[[385,350],[390,450],[398,560],[638,528],[659,317],[190,534],[752,507],[384,138],[40,131]];
+const START={x:433,y:265},STEP=1/120;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function bestRoute(points,start){
+ const n=points.length,total=1<<n,cost=new Float64Array(total*n).fill(Infinity),previous=new Int16Array(total*n).fill(-1);
+ const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+ for(let i=0;i<n;i++)cost[(1<<i)*n+i]=distance(start,points[i]);
+ for(let mask=1;mask<total;mask++)for(let end=0;end<n;end++){
+  if(!(mask&(1<<end)))continue;
+  for(let next=0;next<n;next++)if(!(mask&(1<<next))){
+   const index=(mask|(1<<next))*n+next,value=cost[mask*n+end]+distance(points[end],points[next]);
+   if(value<cost[index]){cost[index]=value;previous[index]=end;}
+  }
+ }
+ let mask=total-1,end=0;
+ for(let i=1;i<n;i++)if(cost[mask*n+i]+distance(points[i],start)<cost[mask*n+end]+distance(points[end],start))end=i;
+ const route=[];
+ while(end>=0){route.push(end);const prev=previous[mask*n+end];mask^=1<<end;end=prev;}
+ return route.reverse();
+}
+function roadPath(mask,width,height,start,goal){
+ const nearest=p=>{
+  const x=clamp(Math.round(p.x),0,width-1),y=clamp(Math.round(p.y),0,height-1);
+  if(mask[y*width+x])return y*width+x;
+  for(let r=1;r<Math.max(width,height);r++){
+   for(let dy=-r;dy<=r;dy++)for(const dx of [-r,r]){
+    const xx=x+dx,yy=y+dy;if(xx>=0&&xx<width&&yy>=0&&yy<height&&mask[yy*width+xx])return yy*width+xx;
+   }
+   for(let dx=-r+1;dx<r;dx++)for(const dy of [-r,r]){
+    const xx=x+dx,yy=y+dy;if(xx>=0&&xx<width&&yy>=0&&yy<height&&mask[yy*width+xx])return yy*width+xx;
+   }
+  }return -1;
+ };
+ const from=nearest(start),to=nearest(goal);if(from<0||to<0)return null;
+ const parent=new Int32Array(width*height).fill(-1),queue=new Int32Array(width*height);
+ let head=0,tail=1;queue[0]=from;parent[from]=from;
+ const offsets=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+ while(head<tail&&parent[to]<0){
+  const id=queue[head++],x=id%width,y=Math.floor(id/width);
+  for(const [dx,dy] of offsets){
+   const xx=x+dx,yy=y+dy;if(xx<0||xx>=width||yy<0||yy>=height)continue;
+   const next=yy*width+xx;
+   if(parent[next]>=0||!mask[next])continue;
+   if(dx&&dy&&(!mask[y*width+xx]||!mask[yy*width+x]))continue;
+   parent[next]=id;queue[tail++]=next;
+  }
+ }
+ if(parent[to]<0)return null;
+ const path=[];let id=to;
+ while(id!==from){path.push({x:id%width,y:Math.floor(id/width)});id=parent[id];}
+ path.push({x:from%width,y:Math.floor(from/width)});return path.reverse();
+}
+if(!window.Phaser)document.getElementById('status').textContent='Could not load Phaser. Check your connection and reload.';
+else launch();
+function launch(){
+ class Race extends Phaser.Scene{
+  preload(){
+   this.failed=[];this.load.on('loaderror',f=>this.failed.push(f.url));
+   for(const [key,path] of Object.entries({road:'road.png',mask:'wasteRace/driveable_mask.png',truck:'truck.png',full:'wasteBin_full.png',empty:'wasteBin_empty.png',home:'retBut.png',pressed:'retBut_clicked.png'}))this.load.image(key,'../assets/'+path);
+  }
+  create(){
+   if(this.failed.length){document.getElementById('status').textContent='These assets could not load:\n'+this.failed.join('\n');return;}
+   const canvas=document.createElement('canvas');canvas.width=800;canvas.height=600;
+   const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.imageSmoothingEnabled=false;
+   ctx.drawImage(this.textures.get('mask').getSourceImage(),0,0,800,600);
+   const pixels=ctx.getImageData(0,0,800,600).data;
+   this.mask=new Uint8Array(480000);
+   for(let i=0;i<this.mask.length;i++)this.mask[i]=pixels[i*4]===255&&pixels[i*4+1]===255&&pixels[i*4+2]===255?1:0;
+   if(!this.mask.some(v=>v)){document.getElementById('status').textContent='The road mask has no driveable pixels.';return;}
+   document.getElementById('status').hidden=true;
+   this.world=this.add.container(0,0);
+   this.world.add(this.add.image(400,300,'road').setDisplaySize(800,600));
+   this.bins=BINS.map(([x,y])=>{
+    const sprite=this.add.image(x,y,'full').setDisplaySize(45,60),mark=this.add.circle(x,y-40,6,0xff4a51);
+    this.world.add([sprite,mark]);return {x,y,sprite,mark};
+   });
+   this.aiSprite=this.add.image(START.x,START.y,'truck').setDisplaySize(50,25).setTint(0x7fbfff);
+   this.userSprite=this.add.image(START.x,START.y,'truck').setDisplaySize(50,25).setTint(0xffbf75);
+   this.aiLabel=this.add.text(START.x,START.y-23,'AI',{fontFamily:'system-ui',fontSize:16,color:'#ffffff',stroke:'#173b59',strokeThickness:4}).setOrigin(.5);
+   this.world.add([this.aiSprite,this.aiLabel,this.userSprite]);
+   this.ui=[];
+   this.home=this.add.image(48,48,'home').setDepth(30).setInteractive({useHandCursor:true});
+   this.home.on('pointerdown',()=>this.home.setTexture('pressed'));this.home.on('pointerout',()=>this.home.setTexture('home'));
+   this.home.on('pointerup',()=>{location.href='../index.html';});
+   this.input.on('pointerdown',(p,objects)=>{
+    if(this.state==='running'&&!objects.length&&this.pointer===null&&p.button<=0){
+     const point=this.toWorld(p);if(point.x>=0&&point.x<=800&&point.y>=0&&point.y<=600)this.pointer=p;
+    }
+   });
+   const release=p=>{this.home.setTexture('home');if(this.pointer===p)this.pointer=null;};
+   this.input.on('pointerup',release);this.input.on('pointerupoutside',release);
+   const pause=()=>{this.pointer=null;this.acc=0;if(this.state==='running'){this.state='paused';this.drawUI();}};
+   window.addEventListener('blur',pause);document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+   this.game.canvas.addEventListener('touchcancel',pause);
+   this.keys=this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
+   this.scale.on('resize',()=>{this.pointer=null;this.layout();this.drawUI();});
+   this.reset();
+  }
+  reset(){
+   this.user={...START,vx:0,vy:0,collected:new Set(),time:0,angle:0};
+   this.ai={...START,collected:new Set(),time:0,angle:0,index:0,path:[],pathIndex:0,blocked:false};
+   this.route=bestRoute(this.bins,START);this.state='ready';this.pointer=null;this.acc=0;
+   for(const b of this.bins){b.sprite.setTexture('full').setDisplaySize(45,60).setAlpha(1);b.mark.setFillStyle(0xff4a51);}
+   this.layout();this.drawUI();this.render();
+  }
+  layout(){
+   const w=this.scale.width,h=this.scale.height;
+   this.mapScale=Math.min(w/800,h/600);this.mapX=(w-800*this.mapScale)/2;this.mapY=(h-600*this.mapScale)/2;
+   this.world.setPosition(this.mapX,this.mapY).setScale(this.mapScale);
+   const size=clamp(88*this.mapScale,64,100);this.home.setDisplaySize(size,size).setPosition(size/2+8,size/2+8);
+  }
+  toWorld(p){return {x:(p.x-this.mapX)/this.mapScale,y:(p.y-this.mapY)/this.mapScale};}
+  label(x,y,text,size=22){
+   const label=this.add.text(x,y,text,{fontFamily:'system-ui',fontSize:size,color:'#ffffff',backgroundColor:'#173039e8',padding:{x:8,y:5},align:'center'}).setOrigin(.5).setDepth(20);
+   this.ui.push(label);return label;
+  }
+  button(x,y,w,label,action){
+   const plate=this.add.rectangle(0,0,w,52,0x287c62).setStrokeStyle(2,0xe1f6e8).setInteractive({useHandCursor:true});
+   const txt=this.add.text(0,0,label,{fontFamily:'system-ui',fontSize:21,color:'#ffffff'}).setOrigin(.5);
+   const group=this.add.container(x,y,[plate,txt]).setDepth(21);this.ui.push(group);
+   plate.on('pointerup',()=>{this.pointer=null;action();});
+  }
+  drawUI(){
+   this.ui.forEach(o=>o.destroy());this.ui=[];
+   const w=this.scale.width,h=this.scale.height;
+   this.info=this.label(w-12,16,'',clamp(w/42,16,25)).setOrigin(1,0);
+   if(this.state==='running'){
+    this.button(w-62,h-36,104,'Pause',()=>{this.state='paused';this.drawUI();});
+   }else{
+    const panel=this.add.rectangle(w/2,h/2,Math.min(w-24,490),230,0x10252e,.94).setStrokeStyle(2,0x9cd9c1).setDepth(19);this.ui.push(panel);
+    const message=this.state==='finished'?(this.user.time<this.ai.time?'You win!':this.user.time>this.ai.time?'AI wins!':'It’s a tie!'):
+     this.state==='paused'?'PAUSED':'Can you beat the AI truck?';
+    this.label(w/2,h/2-70,message,26);
+    this.label(w/2,h/2-18,this.state==='finished'?'You '+this.user.time.toFixed(1)+'s · AI '+this.ai.time.toFixed(1)+'s':'Hold a finger to steer. Stay on the roads!',Math.min(20,w/23));
+    if(this.state!=='finished')this.button(w/2-90,h/2+65,160,this.state==='paused'?'Continue':'Start',()=>{this.state='running';this.acc=0;this.drawUI();});
+    this.button(w/2+(this.state==='finished'?0:95),h/2+65,160,this.state==='finished'?'Race again':'Reset',()=>this.reset());
+   }
+   this.updateInfo();
+  }
+  updateInfo(){this.info.setText('YOU '+this.user.collected.size+'/9 · '+this.user.time.toFixed(1)+'s\nAI '+this.ai.collected.size+'/9 · '+this.ai.time.toFixed(1)+'s');}
+  plan(){
+   const ai=this.ai;
+   if(ai.index>this.route.length)return;
+   const goal=ai.index===this.route.length?START:this.bins[this.route[ai.index]];
+   ai.path=roadPath(this.mask,800,600,ai,goal)||[];ai.pathIndex=0;
+   if(!ai.path.length){
+    ai.blocked=true;this.state='paused';this.drawUI();
+    this.label(this.scale.width/2,this.scale.height/2+22,'AI cannot reach this stop. Check the road mask.',16);
+   }
+  }
+  moveAI(dt){
+   const ai=this.ai;if(ai.blocked||ai.index>this.route.length)return;
+   if(!ai.path.length)this.plan();
+   let remaining=120*dt;
+   while(remaining>0&&ai.pathIndex<ai.path.length){
+    const point=ai.path[ai.pathIndex],dx=point.x-ai.x,dy=point.y-ai.y,d=Math.hypot(dx,dy);
+    if(d<.001){ai.pathIndex++;continue;}
+    const step=Math.min(d,remaining);ai.x+=dx/d*step;ai.y+=dy/d*step;ai.angle=Math.atan2(dy,dx);remaining-=step;
+    if(step>=d)ai.pathIndex++;
+   }
+   if(ai.path.length&&ai.pathIndex>=ai.path.length){
+    if(ai.index<this.route.length){
+     const id=this.route[ai.index];ai.collected.add(id);
+     this.bins[id].sprite.setTexture('empty').setDisplaySize(45,60);this.bins[id].mark.setFillStyle(0x50e59c);
+    }
+    ai.index++;ai.path=[];ai.pathIndex=0;
+   }
+  }
+  step(dt){
+   const u=this.user;
+   if(u.collected.size<9){
+    let dx=Number(this.keys.D.isDown||this.keys.RIGHT.isDown)-Number(this.keys.A.isDown||this.keys.LEFT.isDown);
+    let dy=Number(this.keys.S.isDown||this.keys.DOWN.isDown)-Number(this.keys.W.isDown||this.keys.UP.isDown);
+    if(this.pointer){
+     const p=this.toWorld(this.pointer),rx=p.x-u.x,ry=p.y-u.y;
+     dx=dy=0;
+     if(Math.hypot(rx,ry)>12){if(Math.abs(rx)>Math.abs(ry))dx=Math.sign(rx);else dy=Math.sign(ry);}
+    }
+    const length=Math.hypot(dx,dy);
+    if(length){u.vx+=dx/length*720*dt;u.vy+=dy/length*720*dt;}
+    else{const friction=Math.pow(.9,dt*60);u.vx*=friction;u.vy*=friction;if(Math.abs(u.vx)<3)u.vx=0;if(Math.abs(u.vy)<3)u.vy=0;}
+    const speed=Math.hypot(u.vx,u.vy);
+    if(speed>180){u.vx*=180/speed;u.vy*=180/speed;}
+    u.x=clamp(u.x+u.vx*dt,6,794);u.y=clamp(u.y+u.vy*dt,6,594);
+    if(speed>1)u.angle=Math.atan2(u.vy,u.vx);
+    // Original penalty adds 0.1 frame per frame on off-road ground.
+    u.time+=dt*(this.mask[Math.floor(u.y)*800+Math.floor(u.x)]?1:1.1);
+    this.bins.forEach((b,i)=>{if(!u.collected.has(i)&&Math.hypot(u.x-b.x,u.y-b.y)<36){u.collected.add(i);b.sprite.setAlpha(.35);b.mark.setFillStyle(0xaaaaaa);}});
+   }
+   if(this.ai.collected.size<9)this.ai.time+=dt;
+   this.moveAI(dt);
+   if(u.collected.size===9&&this.ai.collected.size===9){this.state='finished';this.pointer=null;this.drawUI();}
+  }
+  render(){
+   this.userSprite.setPosition(this.user.x,this.user.y).setRotation(this.user.angle);
+   this.aiSprite.setPosition(this.ai.x,this.ai.y).setRotation(this.ai.angle);
+   this.aiLabel.setPosition(this.ai.x,this.ai.y-23);this.updateInfo();
+  }
+  update(time,delta){
+   if(!this.user||this.state!=='running'||document.hidden)return;
+   this.acc=Math.min(.075,this.acc+Math.min(delta/1000,.05));
+   while(this.acc>=STEP&&this.state==='running'){this.step(STEP);this.acc-=STEP;}
+   this.render();
+  }
+ }
+ new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#1e3036',scene:Race,
+ scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},audio:{noAudio:true}});
+}
+</script></body></html>
