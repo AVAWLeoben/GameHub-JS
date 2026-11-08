@@ -1,54 +1,426 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><title>wastePizza · GameHub</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#152e3d}#game{position:fixed;inset:0}canvas{display:block;touch-action:none}#error{position:fixed;inset:0;z-index:3;background:#152e3d;font:20px system-ui;color:white;padding:24px}a{color:#d1eda9}</style></head><body><div id="game"></div><div id="error" hidden>The game engine could not load. Check your connection and reload. <a href="../index.html">Home</a></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
-<script>
-const ING=['Tomato','Cheese','Mushroom','Mozzarella'];
-function recipeMatches(need,pieces){const counts=[0,0,0,0];for(const p of pieces)counts[p.type]++;return counts.every((n,i)=>n===need[i]);}
-class Pizza{
- constructor(s){this.s=s;this.orders=Number(saved('pizza-orders',0))||0;this.mode='menu';this.next();}
- next(){this.pieces=[];this.drag=null;this.selected=0;this.need=[0,0,0,0];const types=[0,1,2,3].sort(()=>Math.random()-.5).slice(0,Math.min(4,1+Math.floor(this.orders/2)));for(const i of types)this.need[i]=Math.floor(rand(2,6));this.notice='Choose an ingredient, then tap the pizza.';}
- layout(){const s=this.s,portrait=s.h>1000,R=Math.min(portrait?340:300,(s.h-280)/2);return {x:portrait?500:350,y:portrait?Math.max(380,s.h*.43):s.h/2+10,r:R};}
- down(p){if(this.mode!=='play')return;const l=this.layout();for(let i=this.pieces.length-1;i>=0;i--){const a=this.pieces[i],q={x:l.x+a.x*l.r,y:l.y+a.y*l.r};if(dist(q,p)<35){this.drag={...a,id:p.id,index:i};return;}}if(dist(p,l)<l.r*.86){this.pieces.push({x:(p.x-l.x)/l.r,y:(p.y-l.y)/l.r,type:this.selected});this.check();}}
- move(p){if(this.drag?.id===p.id){const l=this.layout();this.drag.x=(p.x-l.x)/l.r;this.drag.y=(p.y-l.y)/l.r;}}
- up(p){if(this.drag?.id!==p.id)return;const d=this.drag;if(Math.hypot(d.x,d.y)<.9)this.pieces[d.index]={x:d.x,y:d.y,type:d.type};else this.pieces.splice(d.index,1);this.drag=null;this.check();}
- cancel(){this.drag=null}
- check(){if(recipeMatches(this.need,this.pieces)){this.orders++;save('pizza-orders',this.orders);this.mode='result';}}
- draw(){const s=this.s,l=this.layout(),portrait=s.h>1000;s.image('bg',0,0,1000,s.h);s.box(75,12,850,65,'#493b32e8');s.text(`WASTE PIZZA · ${this.orders} pizzas served`,500,39,26);if(!s.image('pizza',l.x-l.r,l.y-l.r,l.r*2,l.r*2)){s.circle(l.x,l.y,l.r,'#d39b56');s.circle(l.x,l.y,l.r*.9,'#efbc6e');}const rx=portrait?140:700,ry=portrait?100:110,rw=portrait?720:270;s.box(rx,ry,rw,portrait?120:270,'#fff4d9');s.text('YOUR ORDER',rx+rw/2,ry+25,23,'#604a38');for(let i=0;i<4;i++){const x=portrait?rx+95+i*175:rx+30,y=portrait?ry+77:ry+68+i*48;const count=this.pieces.filter(p=>p.type===i).length;s.image('i'+i,x-18,y-18,36,36);s.text(`${count} / ${this.need[i]}`,portrait?x+55:rx+125,y,23,count===this.need[i]?'#477d45':'#7b4837');}for(let i=0;i<this.pieces.length;i++){if(this.drag?.index===i)continue;const p=this.pieces[i];s.image('i'+p.type,l.x+p.x*l.r-30,l.y+p.y*l.r-30,60,60);}if(this.drag){const p=this.drag;s.image('i'+p.type,l.x+p.x*l.r-32,l.y+p.y*l.r-32,64,64);}const by=s.h-130;for(let i=0;i<4;i++){const x=40+i*180;s.button('',x,by,155,76,()=>{this.selected=i;},this.selected===i);s.image('i'+i,x+12,by+10,54,54);s.text(ING[i],x+108,by+38,14,this.selected===i?'#314a35':'white');}s.button('Clear',785,by,175,76,()=>{this.pieces=[];this.drag=null;});s.text('Tap ingredients onto the pizza. Drag a topping off to remove it.',500,s.h-25,20,'#fff');if(this.mode==='menu')s.card('Waste Pizza',['Match the ingredient counts on the recipe.','Make a delicious pizza, then take the next order.'],[['Start cooking',()=>{this.mode='play';}]]);if(this.mode==='result')s.card('Great pizza!',[`${this.orders} pizzas served`],[['Next order',()=>{this.next();this.mode='play';}]]);}
-}
-const GAME={name:'Waste Pizza',Game:Pizza,assets:{bg:'../assets/wastePizza/kitchen.jpg',pizza:'../assets/wastePizza/pizza.png',i0:'../assets/wastePizza/tomato.png',i1:'../assets/wastePizza/cheese.png',i2:'../assets/wastePizza/mushroom.png',i3:'../assets/wastePizza/mozzarella.png',chef:'../assets/wastePizza/pizzachef.png'}};
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#7e5538">
+  <title>Waste Pizza · GameHub</title>
+  <style>
+    * {box-sizing: border-box;}
+    html, body {margin: 0; width: 100%; height: 100%; overflow: hidden; background: #7e5538;}
+    body {overscroll-behavior: none; font-family: system-ui, sans-serif;}
+    #viewport {position: fixed; top: 0; left: 0; width: 100%; height: 100vh; height: 100dvh;}
+    #game {position: absolute; inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);}
+    canvas {display: block; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;}
+    #status, #rotate {position: absolute; inset: 0; z-index: 2; display: grid; place-content: center; text-align: center; gap: 16px; padding: 24px; color: #fff8e9; background: #513527;}
+    #status[hidden] {display: none;}
+    #status-message {max-width: 600px; overflow-wrap: anywhere;}
+    a {color: inherit; min-height: 44px; display: inline-grid; place-items: center;}
+    #rotate {display: none; z-index: 3;}
+    #rotate p {margin: 0; font-size: 20px;}
+    @media (orientation: portrait) {#rotate {display: grid;}}
+  </style>
+</head>
+<body>
+  <div id="viewport">
+    <main id="game" aria-label="Waste Pizza. Drag ingredients from the cutting board onto the pizza to match the recipe. Drag a topping off the pizza to remove it."></main>
+    <div id="status" role="status"><div id="status-message">Loading the kitchen…</div><a href="../index.html">Home</a></div>
+    <div id="rotate"><p>Turn your device sideways</p><span>Waste Pizza is played in landscape.</span><a href="../index.html">Home</a></div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
+  <script>
+// Coordinates are CSS pixels. Toppings use normalized pizza coordinates so that
+// Safari toolbar changes and device rotation cannot displace an order.
+const PIZZA_INGREDIENTS = ['Tomato', 'Cheese', 'Mushroom', 'Mozzarella'];
+const pizzaClamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+const pizzaInside = (p, r) => p.x >= r.x && p.y >= r.y && p.x <= r.x + r.w && p.y <= r.y + r.h;
 
-'use strict';
-const clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),rand=(a,b)=>a+Math.random()*(b-a),dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),TAU=Math.PI*2;
-function saved(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback}catch{return fallback}}
-function save(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{}}
-if(typeof Phaser==='undefined'){document.getElementById('error').hidden=false;}else{
-class HubScene extends Phaser.Scene{
- constructor(){super('game');this.assets={home:'../assets/retBut.png',homeDown:'../assets/retBut_clicked.png',...GAME.assets};}
- preload(){for(const [k,p] of Object.entries(this.assets))this.load.image(k,p);}
- create(){this.keys={};this.holds=new Map();this.zones=[];this.time=0;this.paused=false;this.input.addPointer(4);this.input.keyboard.on('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(!this.paused&&!this.keys[e.key])this.gameplay?.key?.(e.key);this.keys[e.key]=true;if(e.key==='Escape')this.pause();});this.input.keyboard.on('keyup',e=>{this.keys[e.key]=false;});this.input.on('pointerdown',p=>this.down(p));this.input.on('pointermove',p=>this.move(p));this.input.on('pointerup',p=>this.up(p));this.input.on('pointerupoutside',p=>this.up(p));this.scale.on('resize',()=>this.resize());this.game.events.on('blur',()=>this.pause(true));document.addEventListener('visibilitychange',()=>{if(document.hidden)this.pause(true);});this.resize();this.gameplay=new GAME.Game(this);}
- resize(){this.w=1000;this.h=1000*this.scale.height/this.scale.width;if(this.picture)this.picture.destroy();if(this.textures.exists('screen'))this.textures.remove('screen');this.tex=this.textures.createCanvas('screen',this.w,Math.round(this.h));this.c=this.tex.context;this.picture=this.add.image(0,0,'screen').setOrigin(0).setDisplaySize(this.scale.width,this.scale.height);this.cancel();this.gameplay?.resize?.();}
- cancel(){this.holds.clear();this.keys={};this.gameplay?.cancel?.();}
- pause(force=false){if(!this.gameplay)return;this.paused=force||!this.paused;this.cancel();}
- pt(p){return{x:p.x*this.w/this.scale.width,y:p.y*this.h/this.scale.height,id:p.id};}
- down(p){const q=this.pt(p);for(const z of [...this.zones].reverse()){if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h){this.holds.set(q.id,{zone:z});if(typeof z.fn==='function')z.fn(q);else this.gameplay?.control?.(z.fn,true,q);return;}}if(!this.paused){this.holds.set(q.id,{world:true});this.gameplay?.down?.(q);}}
- move(p){const q=this.pt(p),hold=this.holds.get(q.id);if(!hold)return;if(hold.world&&!this.paused)this.gameplay?.move?.(q);else hold.zone?.drag?.(q);}
- up(p){const q=this.pt(p),hold=this.holds.get(q.id);this.holds.delete(q.id);if(!hold)return;if(hold.world)this.gameplay?.up?.(q);else if(typeof hold.zone.fn==='string')this.gameplay?.control?.(hold.zone.fn,false,q);hold.zone?.up?.(q);}
- held(name){return [...this.holds.values()].some(h=>h.zone?.fn===name);}
- update(_,ms){const dt=Math.min(ms/1000,.05);this.time+=dt;if(!this.paused)this.gameplay?.update?.(dt);this.zones=[];this.c.fillStyle=GAME.bg||'#152e3d';this.c.fillRect(0,0,this.w,this.h);this.gameplay?.draw?.();if(this.paused){this.zones=[];this.veil();this.text('PAUSED',500,this.h/2-55,40);this.button('Resume',350,this.h/2,300,64,()=>this.pause(),true);}const home=this.button('',12,12,54,54,()=>{});home.tag='home';home.up=q=>{if(q.x>=12&&q.x<=66&&q.y>=12&&q.y<=66){this.gameplay?.persist?.();location.href='../index.html';}};const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',12,12,54,54))this.text('⌂',39,38,34);if(!this.paused)this.button('Ⅱ',934,12,54,54,()=>this.pause());this.tex.refresh();}
- text(t,x,y,size=20,color='#f3f8ee',align='center'){this.c.font=`600 ${size}px system-ui,sans-serif`;this.c.fillStyle=color;this.c.textAlign=align;this.c.textBaseline='middle';this.c.fillText(String(t),x,y);}
- box(x,y,w,h,color='#244c59',radius=14){const c=this.c;c.fillStyle=color;c.beginPath();c.roundRect(x,y,Math.max(0,w),Math.max(0,h),radius);c.fill();}
- circle(x,y,r,color){this.c.fillStyle=color;this.c.beginPath();this.c.arc(x,y,Math.max(.1,r),0,TAU);this.c.fill();}
- line(points,color,width=3){if(points.length<2)return;const c=this.c;c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.beginPath();c.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))c.lineTo(p.x,p.y);c.stroke();}
- image(key,x,y,w,h,angle=0,flip=false){if(!this.textures.exists(key))return false;const c=this.c;c.save();c.translate(x+w/2,y+h/2);c.rotate(angle);c.scale(flip?-1:1,1);c.drawImage(this.textures.get(key).getSourceImage(),-w/2,-h/2,w,h);c.restore();return true;}
- button(label,x,y,w,h,fn,primary=false){this.box(x,y,w,h,primary?'#c4eaa4':'#244c59');this.text(label,x+w/2,y+h/2,Math.min(21,w/9),primary?'#254638':'#f4f8ee');const z={x,y,w,h,fn};this.zones.push(z);return z;}
- title(name,sub=''){this.text(name,500,34,28);if(sub)this.text(sub,500,66,16,'#c6d6d5');}
- veil(){this.c.fillStyle='#102634e8';this.c.fillRect(0,0,1000,this.h);}
- card(title,lines,buttons){this.zones=[];this.veil();const y=Math.max(110,this.h/2-140);this.text(title,500,y,38,'#d3efb3');lines.forEach((l,i)=>this.text(l,500,y+58+i*32,20));buttons.forEach((b,i)=>this.button(b[0],300,y+90+lines.length*32+i*70,400,56,b[1],i===0));}
- field(ratio=4/3,bottom=90){const maxW=964,maxH=this.h-100-bottom;const w=Math.min(maxW,maxH*ratio),h=w/ratio;return{x:(1000-w)/2,y:90+(maxH-h)/2,w,h};}
+function pizzaLayout(w, h) {
+  const gap = pizzaClamp(h * 0.014, 6, 12);
+  const wide = w / h >= 1.65;
+  let pizza, card, board, instruction;
+  if (wide) {
+    const d = h - gap * 2;
+    pizza = {x: gap, y: gap, w: d, h: d};
+    const rightX = pizza.x + d + gap;
+    const rightW = w - rightX - gap;
+    const panelW = Math.min((rightW - gap) / 2, (h - gap * 2) * 291 / 491);
+    const bx = rightX + (rightW - panelW * 2 - gap) / 2;
+    const by = (h - panelW * 491 / 291) / 2;
+    card = {x: bx, y: by, w: panelW, h: panelW * 973 / 775};
+    board = {x: bx + panelW + gap, y: by, w: panelW, h: panelW * 491 / 291};
+    instruction = by >= 30
+      ? {x: rightX + rightW / 2, y: h - 18, w: rightW}
+      : {x: card.x + card.w / 2, y: (card.y + card.h + h) / 2, w: card.w, wrap: true};
+  } else {
+    const rightW = pizzaClamp(w * 0.245, 174, 320);
+    const leftW = w - rightW - gap * 3;
+    const d = Math.min(h - gap * 2, leftW);
+    pizza = {x: gap + (leftW - d) / 2, y: (h - d) / 2, w: d, h: d};
+    const rightX = w - rightW - gap;
+    const cardH = Math.min(h * 0.40, rightW * 973 / 775);
+    const cardW = cardH * 775 / 973;
+    card = {x: rightX + (rightW - cardW) / 2, y: gap, w: cardW, h: cardH};
+    const boardH = Math.min(h - cardH - gap * 3, rightW * 491 / 291);
+    const boardW = boardH * 291 / 491;
+    board = {x: rightX + (rightW - boardW) / 2, y: h - gap - boardH, w: boardW, h: boardH};
+    instruction = null;
+  }
+  // The four ingredients occupy the cutting surface, above its handle.
+  const inset = board.w * 0.085;
+  const cellGap = Math.max(6, board.w * 0.045);
+  const cell = (board.w - inset * 2 - cellGap) / 2;
+  const tray = Array.from({length: 4}, (_, type) => ({
+    x: board.x + inset + (type % 2) * (cell + cellGap),
+    y: board.y + board.h * 0.065 + Math.floor(type / 2) * (cell + cellGap),
+    w: cell, h: cell, type
+  }));
+  const buttonSize = pizzaClamp(h * 0.09, 48, 68);
+  const home = {x: gap, y: gap, w: buttonSize, h: buttonSize};
+  const clear = {x: gap, y: h - gap - buttonSize, w: buttonSize, h: buttonSize};
+  const resultW = Math.min(330, pizza.w - 20);
+  const resultH = Math.min(300, h - 16);
+  const result = {x: pizza.x + (pizza.w - resultW) / 2, y: (h - resultH) / 2, w: resultW, h: resultH};
+  const next = {x: result.x + 18, y: result.y + result.h - 66, w: result.w - 36, h: 48};
+  return {w, h, wide, pizza, card, board, tray, home, clear, result, next, instruction,
+    toppingSize: pizzaClamp(pizza.w * 0.15, 44, 110)};
 }
-globalThis.GameHubScene=HubScene;
-new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3d',scale:{mode:Phaser.Scale.RESIZE,width:innerWidth,height:innerHeight},input:{activePointers:5},scene:HubScene});
 
+class PizzaGame {
+  constructor({random = Math.random, completed = 0, onComplete = () => {}, onHome = () => {}, hitPizza = null} = {}) {
+    this.random = random;
+    this.completed = Number.isSafeInteger(completed) && completed >= 0 ? completed : 0;
+    this.onComplete = onComplete;
+    this.onHome = onHome;
+    this.hitPizza = hitPizza || ((u, v) => Math.hypot(u - 0.5, v - 0.5) < 0.455);
+    this.layout = pizzaLayout(1024, 768);
+    this.landscape = true;
+    this.dirty = true;
+    this.nextOrder();
+  }
+  nextOrder() {
+    this.cancel();
+    this.pieces = [];
+    this.need = [0, 0, 0, 0];
+    const types = [0, 1, 2, 3];
+    for (let i = 3; i > 0; i--) {
+      const j = Math.floor(this.random() * (i + 1));
+      [types[i], types[j]] = [types[j], types[i]];
+    }
+    const count = 1 + Math.floor(this.random() * 4);
+    for (const type of types.slice(0, count)) this.need[type] = 2 + Math.floor(this.random() * 4);
+    this.mode = 'play';
+    this.dirty = true;
+  }
+  resize(w, h) {
+    this.cancel();
+    this.landscape = w > h;
+    if (this.landscape) this.layout = pizzaLayout(w, h);
+    this.dirty = true;
+  }
+  counts() {
+    const counts = [0, 0, 0, 0];
+    for (const piece of this.pieces) counts[piece.type]++;
+    return counts;
+  }
+  point(piece) {
+    const r = this.layout.pizza;
+    return {x: r.x + piece.u * r.w, y: r.y + piece.v * r.h};
+  }
+  relative(p) {
+    const r = this.layout.pizza;
+    return {u: (p.x - r.x) / r.w, v: (p.y - r.y) / r.h};
+  }
+  down(p) {
+    if (!this.landscape || this.active) return false;
+    const l = this.layout;
+    let button = null;
+    if (pizzaInside(p, l.home)) button = 'home';
+    else if (this.mode === 'result' && pizzaInside(p, l.next)) button = 'next';
+    else if (this.mode === 'play' && pizzaInside(p, l.clear)) button = 'clear';
+    if (button) this.active = {id: p.id, button};
+    else if (this.mode === 'play') {
+      const tray = l.tray.find(r => pizzaInside(p, r));
+      if (tray) this.active = {id: p.id, type: tray.type, index: -1, ...this.relative(p)};
+      else {
+        for (let i = this.pieces.length - 1; i >= 0; i--) {
+          const q = this.point(this.pieces[i]);
+          if (Math.hypot(q.x - p.x, q.y - p.y) <= Math.max(24, l.toppingSize / 2)) {
+            this.active = {id: p.id, index: i, ...this.pieces[i]};
+            break;
+          }
+        }
+      }
+    }
+    this.dirty = true;
+    return !!this.active;
+  }
+  move(p) {
+    if (this.active?.id !== p.id || this.active.button) return;
+    Object.assign(this.active, this.relative(p));
+    this.dirty = true;
+  }
+  up(p) {
+    if (this.active?.id !== p.id) return;
+    const active = this.active;
+    this.active = null;
+    if (active.button) {
+      const rect = this.layout[active.button];
+      if (rect && pizzaInside(p, rect)) {
+        if (active.button === 'home') this.onHome();
+        else if (active.button === 'next') this.nextOrder();
+        else if (active.button === 'clear') this.pieces = [];
+      }
+    } else {
+      const {u, v} = this.relative(p);
+      const valid = u >= 0 && v >= 0 && u < 1 && v < 1 && this.hitPizza(u, v);
+      if (active.index >= 0) this.pieces.splice(active.index, 1);
+      if (valid) this.pieces.push({type: active.type, u, v});
+      this.checkOrder();
+    }
+    this.dirty = true;
+  }
+  cancel(id = null) {
+    if (id === null || this.active?.id === id) this.active = null;
+    this.dirty = true;
+  }
+  checkOrder() {
+    if (this.mode !== 'play') return;
+    const counts = this.counts();
+    if (!counts.every((count, type) => count === this.need[type])) return;
+    this.mode = 'result';
+    this.completed++;
+    this.onComplete(this.completed);
+    this.dirty = true;
+  }
 }
 
-</script></body></html>
+function drawPizzaGame(c, game, assets) {
+  const l = game.layout;
+  const {w, h} = l;
+  const image = (key, r) => {
+    const a = assets[key];
+    c.drawImage(a, r.x, r.y, r.w, r.h);
+  };
+  const text = (value, x, y, size, color = '#513527', align = 'center') => {
+    c.font = `600 ${size}px system-ui, sans-serif`;
+    c.textAlign = align;
+    c.textBaseline = 'middle';
+    c.fillStyle = color;
+    c.fillText(String(value), x, y);
+  };
+  const box = (r, color, radius = 12) => {
+    c.fillStyle = color;
+    c.beginPath();
+    c.roundRect(r.x, r.y, r.w, r.h, radius);
+    c.fill();
+  };
+  c.clearRect(0, 0, w, h);
+  // Cover the viewport without stretching the kitchen artwork.
+  const bg = assets.kitchen;
+  const k = Math.max(w / bg.width, h / bg.height);
+  c.drawImage(bg, (w - bg.width * k) / 2, (h - bg.height * k) / 2, bg.width * k, bg.height * k);
+  image('pizza', l.pizza);
+  image('recipe', l.card);
+  image('board', l.board);
+  for (const r of l.tray) {
+    const pad = r.w * 0.05;
+    image('i' + r.type, {x: r.x + pad, y: r.y + pad, w: r.w - pad * 2, h: r.h - pad * 2});
+  }
+  const counts = game.counts();
+  const rows = [0, 1, 2, 3].filter(type => game.need[type] || counts[type]);
+  const card = l.card;
+  text('ORDER', card.x + card.w / 2, card.y + card.h * 0.135, pizzaClamp(card.w * 0.095, 12, 24));
+  const rowH = card.h * 0.59 / 4;
+  rows.forEach((type, index) => {
+    const cy = card.y + card.h * 0.29 + rowH * (index + 0.5);
+    const size = Math.min(rowH - 2, card.w * 0.22);
+    image('i' + type, {x: card.x + card.w * 0.15, y: cy - size / 2, w: size, h: size});
+    const correct = counts[type] === game.need[type];
+    const extra = counts[type] > game.need[type];
+    text(`${counts[type]} / ${game.need[type]}`, card.x + card.w * 0.60, cy,
+      pizzaClamp(card.w * 0.12, 16, 28), correct ? '#306b36' : extra ? '#ae3029' : '#513527');
+    if (correct) {
+      const mark = Math.min(rowH * 0.6, card.w * 0.13);
+      image('check', {x: card.x + card.w * 0.80, y: cy - mark / 2, w: mark, h: mark});
+    }
+  });
+  const topping = (piece, held = false) => {
+    const p = game.point(piece);
+    const size = l.toppingSize * (held ? 1.08 : 1);
+    if (held) {c.save(); c.shadowColor = '#0006'; c.shadowBlur = 8; c.shadowOffsetY = 4;}
+    image('i' + piece.type, {x: p.x - size / 2, y: p.y - size / 2, w: size, h: size});
+    if (held) c.restore();
+  };
+  game.pieces.forEach((piece, index) => {
+    if (game.active?.index !== index) topping(piece);
+  });
+  const score = `${game.completed} served`;
+  const scoreX = l.home.x + l.home.w + 8;
+  box({x: scoreX, y: l.home.y + 4, w: 104, h: 30}, '#fff7e6e8', 10);
+  text(score, scoreX + 52, l.home.y + 19, 15);
+  if (game.mode === 'play') {
+    box(l.clear, game.active?.button === 'clear' ? '#ecd0a6' : '#fff7e6ed', 10);
+    image('pizza', {x: l.clear.x + 6, y: l.clear.y + 1, w: l.clear.w - 12, h: l.clear.h - 12});
+    text('Clear', l.clear.x + l.clear.w / 2, l.clear.y + l.clear.h - 8, 12);
+  }
+  if (l.instruction) {
+    const message = counts.some((n, i) => n > game.need[i]) ? 'Drag extra toppings off the pizza' : 'Drag toppings onto the pizza';
+    const lines = l.instruction.wrap
+      ? (counts.some((n, i) => n > game.need[i]) ? ['Drag extra toppings', 'off the pizza'] : ['Drag toppings', 'onto the pizza'])
+      : [message];
+    const size = l.instruction.wrap ? 12 : 14;
+    c.font = `600 ${size}px system-ui, sans-serif`;
+    const bw = Math.max(...lines.map(line => c.measureText(line).width)) + 12;
+    const bh = lines.length * 17 + 8;
+    box({x: l.instruction.x - bw / 2, y: l.instruction.y - bh / 2, w: bw, h: bh}, '#fff7e6ed', 8);
+    lines.forEach((line, i) => text(line, l.instruction.x, l.instruction.y + (i - (lines.length - 1) / 2) * 17, size));
+  }
+  if (game.active && !game.active.button) topping(game.active, true);
+  if (game.mode === 'result') {
+    const r = l.result;
+    box(r, '#fff8e9f5', 20);
+    const chefSize = Math.min(112, r.h - 166);
+    image('chef', {x: r.x + (r.w - chefSize) / 2, y: r.y + 12, w: chefSize, h: chefSize});
+    for (const side of [-1, 1]) image('star', {x: r.x + r.w / 2 + side * chefSize * 0.78 - 14, y: r.y + chefSize * 0.44, w: 28, h: 28});
+    text('Great pizza!', r.x + r.w / 2, r.y + chefSize + 36, 26);
+    text('Order complete', r.x + r.w / 2, r.y + chefSize + 65, 16);
+    box(l.next, game.active?.button === 'next' ? '#325a30' : '#447a40');
+    text('Next order', l.next.x + l.next.w / 2, l.next.y + l.next.h / 2, 20, '#fff');
+  }
+  // Home stays visible even while the order-complete card is open.
+  image(game.active?.button === 'home' ? 'homeDown' : 'home', l.home);
+}
+
+const PIZZA_ASSETS = {
+  home: '../assets/retBut.png',
+  homeDown: '../assets/retBut_clicked.png',
+  kitchen: '../assets/wastePizza/kitchen.jpg',
+  pizza: '../assets/wastePizza/pizza.png',
+  recipe: '../assets/wastePizza/recipe_card.png',
+  board: '../assets/wastePizza/cutting_board.png',
+  i0: '../assets/wastePizza/tomato.png',
+  i1: '../assets/wastePizza/cheese.png',
+  i2: '../assets/wastePizza/mushroom.png',
+  i3: '../assets/wastePizza/mozzarella.png',
+  check: '../assets/wastePizza/checkmark.png',
+  chef: '../assets/wastePizza/pizzachef.png',
+  star: '../assets/wastePizza/star.png'
+};
+
+function pizzaError(message) {
+  document.getElementById('status-message').textContent = message;
+  document.getElementById('status').hidden = false;
+}
+
+function startPizza() {
+  if (typeof Phaser === 'undefined') {
+    pizzaError('The game engine could not load. Check your connection and reload.');
+    return;
+  }
+  class PizzaScene extends Phaser.Scene {
+    constructor() {super('pizza'); this.failedAssets = [];}
+    preload() {
+      this.load.on('loaderror', file => this.failedAssets.push(file.src));
+      for (const [key, url] of Object.entries(PIZZA_ASSETS)) this.load.image(key, url);
+    }
+    create() {
+      if (this.failedAssets.length) {
+        pizzaError('Game artwork could not load: ' + this.failedAssets.join(', '));
+        return;
+      }
+      this.art = Object.fromEntries(Object.keys(PIZZA_ASSETS).map(key => [key, this.textures.get(key).getSourceImage()]));
+      // Test the visible pizza artwork, not an invisible rectangular drop zone.
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = maskCanvas.height = 128;
+      const maskContext = maskCanvas.getContext('2d', {willReadFrequently: true});
+      maskContext.drawImage(this.art.pizza, 0, 0, 128, 128);
+      const mask = maskContext.getImageData(0, 0, 128, 128).data;
+      let completed = 0;
+      try {completed = JSON.parse(localStorage.getItem('pizza-orders')) || 0;} catch (_) {}
+      this.play = new PizzaGame({
+        completed,
+        hitPizza: (u, v) => mask[(Math.floor(v * 128) * 128 + Math.floor(u * 128)) * 4 + 3] > 64,
+        onComplete: count => {try {localStorage.setItem('pizza-orders', JSON.stringify(count));} catch (_) {}},
+        onHome: () => {window.location.href = '../index.html';}
+      });
+      this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      this.surface = this.textures.createCanvas('pizza-surface', 1, 1);
+      this.picture = this.add.image(0, 0, 'pizza-surface').setOrigin(0);
+      this.fit();
+      this.scale.on('resize', this.fit, this);
+      this.bindPointers();
+      this.onBlur = () => this.play.cancel();
+      this.onVisibility = () => {if (document.hidden) this.play.cancel();};
+      window.addEventListener('blur', this.onBlur);
+      document.addEventListener('visibilitychange', this.onVisibility);
+      this.events.once('shutdown', () => {
+        this.unbindPointers();
+        window.removeEventListener('blur', this.onBlur);
+        document.removeEventListener('visibilitychange', this.onVisibility);
+      });
+      document.getElementById('status').hidden = true;
+    }
+    fit() {
+      if (!this.play) return;
+      const {width, height} = this.scale;
+      this.play.resize(width, height);
+      this.surface.setSize(Math.max(1, Math.round(width * this.pixelRatio)), Math.max(1, Math.round(height * this.pixelRatio)));
+      this.picture.setSizeToFrame();
+      this.picture.setDisplaySize(width, height);
+    }
+    bindPointers() {
+      const canvas = this.game.canvas;
+      const point = e => {
+        const r = canvas.getBoundingClientRect();
+        return {id: e.pointerId, x: (e.clientX - r.left) * this.scale.width / r.width, y: (e.clientY - r.top) * this.scale.height / r.height};
+      };
+      const down = e => {
+        if (e.button !== 0 || !this.play.landscape) return;
+        e.preventDefault();
+        if (this.play.down(point(e))) {
+          try {canvas.setPointerCapture(e.pointerId);} catch (_) {}
+        }
+      };
+      const move = e => {e.preventDefault(); this.play.move(point(e));};
+      const up = e => {e.preventDefault(); this.play.up(point(e));};
+      const cancel = e => this.play.cancel(e.pointerId);
+      const handlers = {pointerdown: down, pointermove: move, pointerup: up, pointercancel: cancel, lostpointercapture: cancel};
+      for (const [name, fn] of Object.entries(handlers)) canvas.addEventListener(name, fn, {passive: false});
+      this.unbindPointers = () => {
+        for (const [name, fn] of Object.entries(handlers)) canvas.removeEventListener(name, fn);
+      };
+    }
+    update() {
+      if (!this.play?.dirty || !this.play.landscape) return;
+      const c = this.surface.context;
+      c.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
+      drawPizzaGame(c, this.play, this.art);
+      this.surface.refresh();
+      this.play.dirty = false;
+    }
+  }
+  const host = document.getElementById('game');
+  const game = new Phaser.Game({
+    type: Phaser.CANVAS,
+    parent: host,
+    backgroundColor: '#7e5538',
+    scale: {mode: Phaser.Scale.RESIZE, width: host.clientWidth, height: host.clientHeight},
+    input: {mouse: false, touch: false, keyboard: false, gamepad: false},
+    render: {antialias: true},
+    scene: PizzaScene
+  });
+  // Safari can change the available height when its browser bars open/close.
+  const refresh = () => {
+    if (game.scale.getParentBounds()) game.scale.refresh();
+  };
+  const observer = new ResizeObserver(refresh);
+  observer.observe(host);
+  window.visualViewport?.addEventListener('resize', refresh);
+}
+startPizza();
+
+  </script>
+</body>
+</html>
