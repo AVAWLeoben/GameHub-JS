@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2b4233">
-<meta name="gamehub-build" content="hungry-hedgie-interactive-furniture-v3.2">
+<meta name="gamehub-build" content="hungry-hedgie-fresh-home-v3.4">
 <title>Hungry Hedgie · GameHub</title>
 <script>
 // Only handheld browsers need a portrait warning. Desktop windows may be tall.
@@ -68,16 +68,27 @@ const PLACEMENT_SPOTS=[
  {x:92,y:313,w:206,h:110,hx:85,hy:303,hw:242,hh:150,cx:211,cy:369},
  {x:92,y:313,w:242,h:128,hx:78,hy:300,hw:277,hh:159,cx:216,cy:372},
  {x:521,y:348,w:198,h:76,hx:502,hy:322,hw:227,hh:130,cx:616,cy:383},
- {x:345,y:341,w:186,h:135,hx:329,hy:325,hw:218,hh:143,cx:438,cy:403},
+ {x:345,y:317,w:186,h:130,hx:329,hy:307,hw:218,hh:142,cx:438,cy:382},
  {x:315,y:143,w:78,h:116,hx:273,hy:149,hw:162,hh:146,cx:354,cy:211},
- {x:333,y:361,w:216,h:114,hx:318,hy:345,hw:244,hh:131,cx:441,cy:417}
+ {x:333,y:331,w:216,h:114,hx:318,hy:323,hw:244,hh:126,cx:441,cy:388}
+];
+// Furniture may be moved by the child, within broad, room-safe areas.
+// Coordinates are top-left corners of the original-size furniture illustrations.
+const PLACE_LIMITS=[
+ {x0:85,x1:265,y0:290,y1:337},
+ {x0:85,x1:246,y0:289,y1:320},
+ {x0:483,x1:526,y0:336,y1:372},
+ {x0:320,x1:454,y0:292,y1:320},
+ {x0:278,x1:481,y0:147,y1:195},
+ {x0:302,x1:473,y0:324,y1:339}
 ];
 const PLACE_LABELS=[
  ['BED FRAME','SOFT BED'],['BIGGER BED FRAME','BED FOR TWO'],
  ['TINY BED FRAMES','TWO TINY BEDS'],['TABLE FRAME','DINNER TABLE'],
  ['LANTERN HOOK','WARM LANTERN'],['PICNIC BLANKET','FAMILY PICNIC']
 ];
-const SAVE_KEY='GameHub.hungryHedgie.v3';
+const SAVE_KEY='GameHub.hungryHedgie.v4';
+const LEGACY_KEYS=['GameHub.hungryHedgie.v3','hedgie-js-v1','GameHub.hungryHedgie.v2'];
 const BERRY_PLACES=[[521,328],[458,298],[447,402],[343,372],[315,249],[214,318],[149,425],[202,193],[390,175],[103,278],[548,424],[278,224]];
 const ASSET_HOME_PATH='../assets/hungryHedgie/home/';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -96,7 +107,9 @@ class HungryHedgie {
   this.pos={x:636,y:302};this.target={...this.pos};this.left=true;
   this.mode='menu';this.muted=false;this.pointer=null;this.notice='Tap a berry. Hedgie will walk to it.';this.noticeTime=3;
   this.delivery=0;this.glow=0;this.bump=0;this.invulnerable=0;this.flows=[];this.particles=[];this.time=0;
-  this.completed=false;this.quilt='rose';this.calm=false;this.savedFrom='new';this.revealAge=0;this.revealFrom=0;this.revealCount=0;this.placements=Array(STAGES.length).fill(0);this.pendingPlacement=null;this.justPlaced=0;this.build();
+  this.completed=false;this.quilt='rose';this.calm=false;this.savedFrom='new';this.revealAge=0;this.revealFrom=0;this.revealCount=0;this.placements=Array(STAGES.length).fill(0);this.pendingPlacement=null;this.justPlaced=0;this.furniturePositions=PLACEMENT_SPOTS.map(v=>({x:v.x,y:v.y}));this.dragPlacement=null;this.dragFurniture=null;this.selectedFurniture=0;this.decorateBack='homeVisit';this.build();
+  this.legacyAvailable=LEGACY_KEYS.some(k=>saved(k,null)!==null);
+  this.hadCurrentSave=saved(SAVE_KEY,null)!==null;
   this.loadProgress();this.background=this.makeBackground();
  }
  build(){
@@ -105,9 +118,14 @@ class HungryHedgie {
   this.lantern=false;this.flows=[];this.particles=[];this.glow=0;this.bump=0;this.delivery=0;
  }
  unlocks(){return this.completed?STAGES.length:this.placements.filter(v=>v===2).length;}
- loadProgress(){
-  let data=saved(SAVE_KEY,null);
-  if(!data){
+ loadProgress(allowLegacy=false){
+  let data=allowLegacy?null:saved(SAVE_KEY,null);
+  // A newly installed version starts empty. Older saves are never loaded silently.
+  if(!data&&!allowLegacy)return;
+  if(!data&&allowLegacy){
+   data=saved('GameHub.hungryHedgie.v3',null);
+  }
+  if(!data&&allowLegacy){
    const v=saved('hedgie-js-v1',null);
    if(v&&Number.isInteger(v.stage)&&v.stage>=0&&v.stage<=2){
     data={chapter:[0,1,3][v.stage],delivered:v.delivered,carried:v.carry,active:v.active,quilt:'rose'};
@@ -153,15 +171,50 @@ class HungryHedgie {
    this.pendingPlacement=this.placements[this.stage]+1;
    this.mode='homeReveal';this.revealAge=0;
   }
+  if(Array.isArray(data.furniturePositions)&&data.furniturePositions.length===STAGES.length){
+   data.furniturePositions.forEach((pos,i)=>{
+    if(pos&&Number.isFinite(pos.x)&&Number.isFinite(pos.y)){
+     const b=PLACE_LIMITS[i];this.furniturePositions[i]={x:clamp(pos.x,b.x0,b.x1),y:clamp(pos.y,b.y0,b.y1)};
+    }
+   });
+  }
+  this.persist();
+ }
+ newHome(){
+  const muted=this.muted,calm=this.calm;
+  this.stage=0;this.delivered=0;this.carry=0;this.completed=false;this.quilt='rose';
+  this.pos={x:636,y:302};this.target={...this.pos};this.left=true;
+  this.mode='homeVisit';this.muted=muted;this.calm=calm;this.savedFrom='new';this.hadCurrentSave=true;
+  this.placements=Array(STAGES.length).fill(0);this.pendingPlacement=null;this.justPlaced=0;
+  this.furniturePositions=PLACEMENT_SPOTS.map(v=>({x:v.x,y:v.y}));
+  this.dragPlacement=null;this.dragFurniture=null;this.selectedFurniture=0;this.revealAge=0;
+  this.notice='Collect berries for your first bed!';this.noticeTime=4;
+  this.cancel();this.build();this.persist();
+ }
+ requestNewHome(){
+  const progress=this.completed||this.stage>0||this.delivered>0||this.carry>0||this.placements.some(v=>v>0);
+  if(progress){this.mode='confirmReset';this.cancel();}
+  else this.newHome();
+ }
+ showEmptyBurrow(){this.mode='homeVisit';this.cancel();}
+ resumeOldHome(){
+  if(!this.legacyAvailable)return;
+  this.stage=0;this.delivered=0;this.carry=0;this.completed=false;
+  this.placements=Array(STAGES.length).fill(0);this.pendingPlacement=null;
+  this.furniturePositions=PLACEMENT_SPOTS.map(v=>({x:v.x,y:v.y}));
+  this.mode='menu';this.build();this.loadProgress(true);
+  this.hadCurrentSave=true;
+  this.mode=this.pendingPlacement!==null?'homeReveal':'homeVisit';
   this.persist();
  }
  persist(){
   save(SAVE_KEY,{schema:4,chapter:this.stage,delivered:this.delivered,carried:this.carry,
    placements:this.placements.slice(),pendingPlacement:this.pendingPlacement,
+   furniturePositions:this.furniturePositions.map(p=>({...p})),
    active:this.berries.map(b=>b.active),position:[this.pos.x,this.pos.y],quilt:this.quilt,
    completed:this.completed,muted:this.muted,calm:this.calm});
  }
- cancel(){this.pointer=null;this.target={...this.pos};}
+ cancel(){this.pointer=null;this.dragPlacement=null;this.dragFurniture=null;this.target={...this.pos};}
  toast(s){this.notice=s;this.noticeTime=2.5;}
  playSound(type){if(this.muted)return;try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;
    if(!this.audio)this.audio=new Audio();if(this.audio.state==='suspended')this.audio.resume();
@@ -180,23 +233,75 @@ class HungryHedgie {
  }
  beginFreePlay(){this.completed=true;this.placements.fill(2);this.pendingPlacement=null;this.stage=5;this.delivered=this.carry=0;this.build();this.pos={x:636,y:302};this.target={...this.pos};this.mode='play';this.persist();this.toast('We can keep picking berries together!');}
  showHome(){if(this.mode!=='play'||this.carry||this.delivery>0)return;this.cancel();this.mode='homeVisit';this.persist();}
- placeFurniture(){
+ // Opening the decorator never requires a fresh reward or a new save.
+ // Children coming from older saves may rearrange what is already installed.
+ openDecorator(from=this.mode){
+  this.dragFurniture=null;
+  this.decorateBack=from==='menu'?'menu':from==='finale'?'finale':from==='homeReveal'?'homeReveal':'homeVisit';
+  this.mode='decorate';
+  const available=this.decoratableItems();
+  if(available.length&&!available.includes(this.selectedFurniture))this.selectedFurniture=available[0];
+  this.persist();
+ }
+ decoratableItems(){return this.placements.map((n,i)=>n>0?i:-1).filter(i=>i>=0);}
+ roomPoint(q){return q&&q.x>=84&&q.x<=721&&q.y>=149&&q.y<=449;}
+ furniturePos(i,where=null){
+  if(!where)return this.furniturePositions[i];
+  const b=PLACE_LIMITS[i],spec=PLACEMENT_SPOTS[i];
+  return {x:clamp(where.x-spec.w/2,b.x0,b.x1),y:clamp(where.y-spec.h/2,b.y0,b.y1)};
+ }
+ currentSpot(i){const p=this.furniturePositions[i],s=PLACEMENT_SPOTS[i];return {...s,x:p.x,y:p.y,cx:p.x+s.w/2,cy:p.y+s.h/2};}
+ // Works for both press-and-release and press-drag-release, at any floor point.
+ // This is real furniture placement: the child's chosen position is saved.
+
+ placeFurniture(where=null){
   if(this.mode!=='homeReveal'||this.pendingPlacement===null)return;
   const phase=this.pendingPlacement;
   if(phase!==this.placements[this.stage]+1)return;
-  this.placements[this.stage]=phase;this.pendingPlacement=null;
+  if(where)this.furniturePositions[this.stage]=this.furniturePos(this.stage,where);
+  this.dragPlacement=null;this.placements[this.stage]=phase;this.pendingPlacement=null;
   this.justPlaced=2.8;this.revealAge=0;
   this.playSound(phase===2?'win':'home');
   this.toast(phase===2?PROJECTS[this.stage].finished:PROJECTS[this.stage].first);
   this.persist();
  }
+ relocateFurniture(i,where){
+  if(this.mode!=='decorate'||!this.placements[i])return;
+  this.furniturePositions[i]=this.furniturePos(i,where);
+  this.justPlaced=1;this.playSound('home');this.persist();
+ }
+ closeDecorator(){this.dragFurniture=null;this.mode=this.decorateBack||'homeVisit';this.persist();}
+ 
  leaveHome(){this.mode='play';this.cancel();this.persist();}
  handleDown(q){
+  // Do not depend on temporary hit-boxes generated on the previous draw frame.
+  // All of the visible room is an active touch surface when placing/moving.
+  if(this.roomPoint(q)&&this.mode==='homeReveal'&&this.pendingPlacement!==null){
+   this.dragPlacement={id:q.id,where:{x:q.x,y:q.y}};return;
+  }
+  if(this.roomPoint(q)&&this.mode==='decorate'&&this.decoratableItems().length){
+   // Touch an existing item to pick it up, otherwise use the selected item.
+   const found=[...this.decoratableItems()].reverse().find(i=>{
+    const spot=this.currentSpot(i);return q.x>=spot.x-22&&q.x<=spot.x+spot.w+22&&q.y>=spot.y-16&&q.y<=spot.y+spot.h+16;
+   });
+   if(found!==undefined)this.selectedFurniture=found;
+   this.dragFurniture={id:q.id,index:this.selectedFurniture,where:{x:q.x,y:q.y}};return;
+  }
   for(const z of [...this.s.zones].reverse())if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h){z.action();return;}
   if(this.mode==='play'&&!this.delivery&&q.y>=113&&q.y<=501){this.pointer=q.id;this.handleMove(q);}
  }
- handleMove(q){if(this.pointer!==q.id||this.mode!=='play'||q.y<113||q.y>501)return;this.target={x:clamp(q.x,49,751),y:clamp(q.y,145,478)};}
- handleUp(q){if(this.pointer===q.id)this.pointer=null;}
+ handleMove(q){
+  if(this.dragPlacement?.id===q.id){this.dragPlacement.where={x:q.x,y:q.y};return;}
+  if(this.dragFurniture?.id===q.id){this.dragFurniture.where={x:q.x,y:q.y};return;}
+  if(this.pointer!==q.id||this.mode!=='play'||q.y<113||q.y>501)return;
+  this.target={x:clamp(q.x,49,751),y:clamp(q.y,145,478)};
+ }
+ handleUp(q){
+  if(this.dragPlacement?.id===q.id){const point=this.roomPoint(q)?q:this.dragPlacement.where;this.placeFurniture(point);return;}
+  if(this.dragFurniture?.id===q.id){const d=this.dragFurniture;this.dragFurniture=null;this.relocateFurniture(d.index,this.roomPoint(q)?q:d.where);return;}
+  if(this.pointer===q.id)this.pointer=null;
+ }
+
  update(dt){this.time+=dt;if(this.mode==='homeReveal'){this.revealAge=Math.min(10,this.revealAge+dt);this.justPlaced=Math.max(0,this.justPlaced-dt);}if(this.mode!=='play')return;
   this.noticeTime=Math.max(0,this.noticeTime-dt);this.glow=Math.max(0,this.glow-dt);this.bump=Math.max(0,this.bump-dt);this.invulnerable=Math.max(0,this.invulnerable-dt);
   for(const p of this.particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=55*dt;p.life-=dt;}this.particles=this.particles.filter(p=>p.life>0);
@@ -289,6 +394,8 @@ class HungryHedgie {
   const furniture=(threshold,name,x,y,w,h)=>{
    const ready=level>=threshold,building=partial&&this.stage===threshold-1;
    if(!ready&&!building)return;
+   const index=threshold===1&&level>=2?1:threshold-1;
+   const location=this.furniturePositions[index];x=location.x;y=location.y;
    if(building&&!ready){
     // First trip is real, solid construction. It no longer looks like a faded, broken image.
     this.drawConstruction(name,x,y,w,h);
@@ -297,19 +404,20 @@ class HungryHedgie {
   };
   // Wallpaper then layered furniture: permanent unlocks never disappear.
   if(level>=6||partial&&this.stage===5)furniture(6,'picnicArt',333,361,216,114);
-  furniture(6,'pantryArt',571,218,128,141);
+  // The pantry remains on its wall shelf; the picnic itself is movable.
+  if(level>=6||partial&&this.stage===5){if(!this.homeSprite('pantryArt',571,218,128,141))this.drawFurnitureFallback('pantryArt',571,218,128,141);}
   furniture(5,'lanternArt',315,143,78,116);
   furniture(1,level>=2?'bedDouble':'bedSingle',92,313,level>=2?242:206,level>=2?128:110);
   if(partial&&this.stage===1&&level<2)furniture(2,'bedDouble',92,313,242,128);
   furniture(3,'bedBaby',521,348,102,74);
   if(level>=3||partial&&this.stage===2){
-   if(level>=3){if(!this.homeSprite('bedBaby',626,350,96,72))this.drawFurnitureFallback('bedBaby',626,350,96,72);}
-   else this.drawConstruction('bedBaby',626,350,96,72);
+   if(level>=3){const p=this.furniturePositions[2];if(!this.homeSprite('bedBaby',p.x+105,p.y+2,96,72))this.drawFurnitureFallback('bedBaby',p.x+105,p.y+2,96,72);}
+   else{const p=this.furniturePositions[2];this.drawConstruction('bedBaby',p.x+105,p.y+2,96,72);}
   }
   furniture(4,'tableArt',345,341,186,135);
   // Quilts recolour without replacing the furniture assets.
   if(level>=1){const colour=this.quilt==='sky'?'#b2dbe7':'#e9abb7';c.save();c.globalAlpha=.78;
-   ellipse(c,level>=2?241:219,389,level>=2?45:36,8,colour);c.restore();}
+   ellipse(c,(level>=2?this.furniturePositions[1].x:this.furniturePositions[0].x)+(level>=2?149:127),(level>=2?this.furniturePositions[1].y:this.furniturePositions[0].y)+76,level>=2?45:36,8,colour);c.restore();}
   // Families arrive on chapter completion and may be revisited at any time.
   this.familyMember(265,422,'hedgie',1);
   if(level>=2)this.familyMember(326,424,'partner',.96);
@@ -362,30 +470,51 @@ class HungryHedgie {
   c.restore();
  }
  drawPlacementTarget(){
-  // A translucent preview in its REAL destination, never a draggable object.
-  // The hit region is larger than the art so young players can tap imprecisely.
-  const c=this.c,spot=PLACEMENT_SPOTS[this.stage],phase=this.pendingPlacement;
-  if(phase===null)return;
-  const p=.5+.5*Math.sin(this.time*4.8),cx=spot.cx,cy=spot.cy;
-  c.save();
-  ellipse(c,cx,cy+14,spot.hw*.53,spot.hh*.42,`rgba(255,237,132,${.22+p*.16})`);
-  c.strokeStyle=`rgba(252,215,83,${.67+p*.30})`;c.lineWidth=5+p*3;
-  c.beginPath();c.ellipse(cx,cy,spot.hw*.47,spot.hh*.40,0,0,TAU);c.stroke();
-  c.globalAlpha=.66+p*.14;
+  const c=this.c,phase=this.pendingPlacement;if(phase===null)return;
+  const point=this.dragPlacement?.where||this.currentSpot(this.stage),spot=this.dragPlacement?this.furniturePos(this.stage,point):this.furniturePositions[this.stage];
+  const spec=PLACEMENT_SPOTS[this.stage],p=.5+.5*Math.sin(this.time*5);
+  const cx=spot.x+spec.w/2,cy=spot.y+spec.h/2;
+  // Golden placement area + oversized preview. Drag the object or tap the room.
+  const bounds=PLACE_LIMITS[this.stage];
+  c.save();c.fillStyle=`rgba(255,226,139,${.08+p*.05})`;c.strokeStyle='#edb83f';c.lineWidth=3;c.setLineDash([12,9]);
+  c.beginPath();c.roundRect(bounds.x0,bounds.y0,bounds.x1-bounds.x0+spec.w,bounds.y1-bounds.y0+spec.h,19);c.fill();c.stroke();c.setLineDash([]);
+  ellipse(c,cx,cy+11,spec.w*.53,spec.h*.5,`rgba(255,234,120,${.20+p*.11})`);
+  c.globalAlpha=.83;
   if(phase===1){
-   if(this.stage===2){this.drawConstruction('bedBaby',521,348,102,74);this.drawConstruction('bedBaby',626,350,96,72);}
-   else this.drawConstruction(PROJECTS[this.stage].asset,spot.x,spot.y,spot.w,spot.h);
+   if(this.stage===2){this.drawConstruction('bedBaby',spot.x,spot.y,102,74);this.drawConstruction('bedBaby',spot.x+105,spot.y+2,96,72);}
+   else this.drawConstruction(PROJECTS[this.stage].asset,spot.x,spot.y,spec.w,spec.h);
   }else{
-   if(this.stage===2){if(!this.homeSprite('bedBaby',521,348,102,74))this.drawFurnitureFallback('bedBaby',521,348,102,74);
-    if(!this.homeSprite('bedBaby',626,350,96,72))this.drawFurnitureFallback('bedBaby',626,350,96,72);}
-   else if(!this.homeSprite(PROJECTS[this.stage].asset,spot.x,spot.y,spot.w,spot.h))this.drawFurnitureFallback(PROJECTS[this.stage].asset,spot.x,spot.y,spot.w,spot.h);
+   if(this.stage===2){this.homeSprite('bedBaby',spot.x,spot.y,102,74)||this.drawFurnitureFallback('bedBaby',spot.x,spot.y,102,74);
+    this.homeSprite('bedBaby',spot.x+105,spot.y+2,96,72)||this.drawFurnitureFallback('bedBaby',spot.x+105,spot.y+2,96,72);}
+   else this.homeSprite(PROJECTS[this.stage].asset,spot.x,spot.y,spec.w,spec.h)||this.drawFurnitureFallback(PROJECTS[this.stage].asset,spot.x,spot.y,spec.w,spec.h);
   }
   c.restore();
-  // Pointer graphic follows a tiny bob; visual communication without reading.
-  const labelY=Math.min(433,cy+spot.hh*.35+15);
-  this.panel(cx-63,labelY-16,126,32,14,'#fff3bd');
-  this.text('✦ TAP HERE ✦',cx,labelY,15,C.green,800,122);
-  this.clickBox(spot.hx,spot.hy,spot.hw,spot.hh,()=>this.placeFurniture());
+  this.panel(cx-87,Math.min(425,cy+spec.h*.40)-16,174,33,14,'#fff3bd');
+  this.text('✦ MOVE ME! ✦',cx,Math.min(425,cy+spec.h*.40),16,C.green,800,167);
+ }
+ drawDecorator(){
+  const choices=this.decoratableItems(),c=this.c;
+  if(!choices.length){
+   this.panel(229,236,342,99,17,'#fff0bf');this.text('Collect your first basket',400,267,22,C.green,750);
+   this.text('to earn a lovely bed!',400,301,19,C.ink);
+   this.homeAction('GO FIND BERRIES',450,461,260,42,()=>{this.mode='play';this.persist();});return;
+  }
+  const index=this.selectedFurniture,spot=this.currentSpot(index),bounds=PLACE_LIMITS[index],p=.4+Math.sin(this.time*4)*.25;
+  c.save();c.strokeStyle=`rgba(250,185,45,${p+.45})`;c.lineWidth=5;c.setLineDash([9,8]);
+  c.beginPath();c.roundRect(bounds.x0,bounds.y0,bounds.x1-bounds.x0+spot.w,bounds.y1-bounds.y0+spot.h,18);c.stroke();c.setLineDash([]);
+  c.strokeStyle='#f1b72c';c.lineWidth=4;c.strokeRect(spot.x-4,spot.y-4,spot.w+8,spot.h+8);
+  if(this.dragFurniture){const pt=this.furniturePos(index,this.dragFurniture.where);c.globalAlpha=.8;
+   const key=PROJECTS[index].asset;
+   if(this.placements[index]===1)this.drawConstruction(key,pt.x,pt.y,spot.w,spot.h);
+   else this.homeSprite(key,pt.x,pt.y,spot.w,spot.h)||this.drawFurnitureFallback(key,pt.x,pt.y,spot.w,spot.h);
+  }
+  c.restore();
+  this.panel(188,75,424,63,19,'#fff0bc');this.text('MAKE IT YOUR OWN!',400,92,26,C.green,800);
+  this.text('Tap or drag furniture to a new spot',400,119,17,C.ink,700);
+  this.homeAction('◀',91,460,51,43,()=>{const k=choices.indexOf(index);this.selectedFurniture=choices[(k+choices.length-1)%choices.length];});
+  this.panel(151,460,270,43,14,'#fff2c8');this.text(PROJECTS[index].short,286,481,17,C.green,750,252);
+  this.homeAction('▶',430,460,51,43,()=>{const k=choices.indexOf(index);this.selectedFurniture=choices[(k+1)%choices.length];});
+  this.homeAction('DONE ✓',518,460,196,43,()=>this.closeDecorator());
  }
  drawHomeInterior(){
   const c=this.c;
@@ -400,17 +529,23 @@ class HungryHedgie {
    ellipse(c,452,216,56,52,'#c3d9c4');
   }
   this.homeFurniture();
-  const reveal=this.mode==='homeReveal',finale=this.mode==='finale';
+  if(!this.placements.some(v=>v>0)&&!this.completed){
+   this.panel(177,247,446,73,17,'#fff2d4');
+   this.text('Our little home is still empty!',400,272,23,C.green,750);
+   this.text('Find berries to make the first cosy bed.',400,301,18,C.ink,600);
+  }
+  const reveal=this.mode==='homeReveal',finale=this.mode==='finale',decorate=this.mode==='decorate';
   const pending=reveal&&this.pendingPlacement!==null;
   if(pending)this.drawPlacementTarget();
+  if(decorate)this.drawDecorator();
   c.restore();
   const full=this.completed||this.delivered>=STAGES[this.stage].goal;
-  const title=finale?'A Home for Four!':reveal?(pending?('PLACE THE '+PLACE_LABELS[this.stage][this.pendingPlacement-1]+'!'):(full?PROJECTS[this.stage].done:PROJECTS[this.stage].first)):'Our Little Home';
+  const title=decorate?'Make your home cosy!':finale?'A Home for Four!':reveal?(pending?('PLACE THE '+PLACE_LABELS[this.stage][this.pendingPlacement-1]+'!'):(full?PROJECTS[this.stage].done:PROJECTS[this.stage].first)):'Our Little Home';
   if(reveal){
    // The reward is the focus: an unmissable two-step construction event.
    this.panel(196,72,408,74,21,'#fff2c4');
    this.text(title,400,96,27,C.green,800,390);
-   this.text(pending?'Tap the golden glow to put it in place!':(full?PROJECTS[this.stage].finished:PROJECTS[this.stage].part),400,127,17,C.ink,650,392);
+   this.text(pending?'DRAG into the room, or TAP any glowing spot!':(full?PROJECTS[this.stage].finished:PROJECTS[this.stage].part),400,127,16,C.ink,650,400);
    const targets=[{x:211,y:362,r:86},{x:218,y:359,r:95},{x:613,y:384,r:66},{x:438,y:400,r:71},{x:350,y:222,r:72},{x:447,y:413,r:90}];
    if(!pending){
     const v=targets[this.stage],pulse=.6+Math.sin(this.revealAge*7)*.18;
@@ -422,11 +557,11 @@ class HungryHedgie {
     }}
     if(full&&(this.stage===1||this.stage===2))for(let i=0;i<3;i++)heart(c,290+i*45,285+Math.sin(this.revealAge*4+i)*7,10);
    }
-  }else this.text(title,400,128,26,C.green,750,650);
+  }else if(!decorate)this.text(title,400,128,26,C.green,750,650);
   // Two large, readable basket milestones remain visible in the interior.
-  this.text('BASKET TRIPS',319,483,13,C.green,750);this.drawTripSteps(382,482,14);
+  if(!decorate){if(!this.decoratableItems().length)this.text('BASKET TRIPS',319,483,13,C.green,750);this.drawTripSteps(382,482,14);}
   // Small and predictable decoration choices, no purchases.
-  if(this.unlocks()>=1){
+  if(!decorate&&this.unlocks()>=1){
    this.text('Quilt:',116,482,14,'#74634c');
    for(const [x,value,label,color] of [[157,'rose','Rose','#e9abb7'],[216,'sky','Sky','#a8d8e5']]){
     rect(c,x-22,465,45,34,color,13);
@@ -437,17 +572,22 @@ class HungryHedgie {
   }
   if(reveal){
    if(pending){
-    this.panel(450,461,260,42,15,'#fff0c7');
-    this.text('✦  Tap the glow!  ✦',580,482,20,C.green,800);
+    this.homeAction('PLACE IT HERE ✓',450,461,260,42,()=>this.placeFurniture());
    }
    else if(full&&!this.completed&&this.stage===STAGES.length-1)this.homeAction('Celebrate!',450,461,260,42,()=>this.advance());
    else if(full&&!this.completed)this.homeAction('Next adventure',450,461,260,42,()=>this.advance());
    else if(this.completed)this.homeAction('More berries!',450,461,260,42,()=>this.beginFreePlay());
    else this.homeAction('Keep collecting',450,461,260,42,()=>this.leaveHome());
-  } else if(finale){
+  } else if(decorate){ /* Decorator owns its controls. */ } else if(finale){
    this.homeAction('Pick more berries',450,461,260,42,()=>this.beginFreePlay());
    for(let k=0;k<4;k++)heart(c,288+k*53,180+Math.sin(this.time*2+k)*5,11);
-  } else this.homeAction('Back to the meadow',450,461,260,42,()=>this.leaveHome());
+  } else {
+   this.homeAction(this.unlocks()?'Back to the meadow':'GO FIND BERRIES',450,461,260,42,()=>this.leaveHome());
+   if(this.decoratableItems().length)this.homeAction('MOVE FURNITURE',90,461,253,42,()=>this.openDecorator('homeVisit'));
+  }
+  // A completed chapter may be reopened for decorating even after its reward was collected.
+  if((finale||reveal&&!pending)&&this.decoratableItems().length&&!decorate)
+   this.homeAction('ARRANGE',85,461,220,42,()=>this.openDecorator(this.mode));
   this.homeButton();this.soundButton();
  }
  homeAction(label,x,y,w,h,fn){rect(this.c,x,y,w,h,C.green,15);this.text(label,x+w/2,y+h/2,20,C.cream,750);this.clickBox(x,y,w,h,fn);}
@@ -517,6 +657,14 @@ class HungryHedgie {
  }
  drawPanel(){const c=this.c;rect(c,0,0,W,H,'rgba(30,53,43,.57)');
   this.s.zones=[];this.panel(151,119,498,393,27);
+  if(this.mode==='confirmReset'){
+   this.text('A brand new little home?',400,170,34,C.green,750);
+   this.text('The furniture in this home will start empty.',400,242,21,C.ink,600,450);
+   this.text('Your older saves will stay safe.',400,278,20,C.ink,550);
+   this.homeAction('YES, START FRESH',244,343,310,62,()=>this.newHome());
+   this.homeAction('KEEP MY HOME',244,418,310,59,()=>{this.mode='menu';});
+   this.homeButton();this.soundButton();return;
+  }
   if(this.mode==='menu'){
    this.text('Hello, little Hedgie!',400,155,36,C.green,700);this.text("Let's make a cosy home.",400,194,23);
    berry(c,264,262,40);this.drawPlayer(400,265,62,49);rect(c,503,254,54,43,'#ba915b',8);
@@ -537,20 +685,30 @@ class HungryHedgie {
   }else{
    this.text('A little rest',400,170,38,C.green,700);this.rewardArt();this.text('Hedgie and the berries can wait.',400,366,21);
   }
-  // A child-friendly no-rival option, saved without penalising progression.
-  rect(c,301,388,198,28,'#e6edca',13);this.text('Calm forest: '+(this.calm?'ON':'OFF'),400,402,16,C.green,700);
-  this.clickBox(299,386,202,32,()=>{this.calm=!this.calm;this.persist();});
-  const label=this.mode==='menu'?(this.completed?'Visit our family':"Let's play!"):this.mode==='chapterIntro'?"Let's collect!":'Keep playing';
-  rect(c,250,421,300,61,C.green,20);this.text(label,400,452,27,C.cream,700);
-  this.clickBox(250,421,300,61,()=>{
-   if(this.mode==='menu'){
-    if(this.completed)this.mode='finale';else this.mode=this.delivered>=STAGES[this.stage].goal?'homeReveal':'play';
-    this.playSound('home');
-   }else this.mode='play';this.cancel();
+  // The main button starts a genuinely empty new home, or continues this version's save.
+  rect(c,317,384,167,28,'#e6edca',13);
+  this.text('Calm forest: '+(this.calm?'ON':'OFF'),400,398,15,C.green,700);
+  this.clickBox(315,382,171,32,()=>{this.calm=!this.calm;this.persist();});
+  const menu=this.mode==='menu';
+  const primary=menu?(this.hadCurrentSave?(this.completed?'VISIT FAMILY HOME':'CONTINUE PLAYING'):'START A NEW HOME'):
+    this.mode==='chapterIntro'?"LET'S COLLECT!":'KEEP PLAYING';
+  rect(c,250,416,300,52,C.green,18);this.text(primary,400,442,22,C.cream,750);
+  this.clickBox(250,416,300,52,()=>{
+   if(menu){
+    if(!this.hadCurrentSave){this.newHome();}
+    else{this.mode=this.completed?'finale':this.pendingPlacement!==null?'homeReveal':'play';this.cancel();}
+   }else {this.mode='play';this.cancel();this.persist();}
   });
+  if(menu){
+   rect(c,248,475,147,43,'#fff0bd',13);this.text('NEW HOME',321,496,17,C.green,800);
+   this.clickBox(248,475,147,43,()=>this.requestNewHome());
+   rect(c,405,475,147,43,'#fff0bd',13);
+   this.text(this.legacyAvailable?'OLDER SAVE':'SEE BURROW',478,496,16,C.green,800);
+   this.clickBox(405,475,147,43,()=>this.legacyAvailable?this.resumeOldHome():this.showEmptyBurrow());
+  }
   this.homeButton();this.soundButton();
  }
- draw(){this.s.zones=[];this.c.clearRect(0,0,W,H);this.drawWorld();this.drawHUD();if(this.mode==='menu'||this.mode==='pause'||this.mode==='chapterIntro')this.drawPanel();else if(['homeVisit','homeReveal','finale'].includes(this.mode))this.drawHomeInterior();}
+ draw(){this.s.zones=[];this.c.clearRect(0,0,W,H);this.drawWorld();this.drawHUD();if(['menu','pause','chapterIntro','confirmReset'].includes(this.mode))this.drawPanel();else if(['homeVisit','homeReveal','finale','decorate'].includes(this.mode))this.drawHomeInterior();}
 }
 if(typeof Phaser==='undefined'){document.getElementById('error').hidden=false;return;}
 class HedgieScene extends Phaser.Scene{
