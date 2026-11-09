@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2b4233">
-<meta name="gamehub-build" content="hungry-hedgie-rewards-v3.1">
+<meta name="gamehub-build" content="hungry-hedgie-interactive-furniture-v3.2">
 <title>Hungry Hedgie · GameHub</title>
 <script>
 // Only handheld browsers need a portrait warning. Desktop windows may be tall.
@@ -62,6 +62,21 @@ const PROJECTS=[
  {short:'A warm lantern',asset:'lanternArt',first:'HANGING THE LIGHT!',done:'A COSY LANTERN!',part:'First basket: lantern hook',finished:'Our home is warm and bright!'},
  {short:'Picnic and pantry',asset:'picnicArt',first:'PICNIC PREPARATIONS!',done:'HOME FOR FOUR!',part:'First basket: picnic blanket',finished:'We made a lovely family home!'}
 ];
+// Two large, fixed touch targets for every chapter: one tap places each reward.
+// x/y/w/h are the artwork bounds; hx/hy/hw/hh are deliberately forgiving hitboxes.
+const PLACEMENT_SPOTS=[
+ {x:92,y:313,w:206,h:110,hx:85,hy:303,hw:242,hh:150,cx:211,cy:369},
+ {x:92,y:313,w:242,h:128,hx:78,hy:300,hw:277,hh:159,cx:216,cy:372},
+ {x:521,y:348,w:198,h:76,hx:502,hy:322,hw:227,hh:130,cx:616,cy:383},
+ {x:345,y:341,w:186,h:135,hx:329,hy:325,hw:218,hh:143,cx:438,cy:403},
+ {x:315,y:143,w:78,h:116,hx:273,hy:149,hw:162,hh:146,cx:354,cy:211},
+ {x:333,y:361,w:216,h:114,hx:318,hy:345,hw:244,hh:131,cx:441,cy:417}
+];
+const PLACE_LABELS=[
+ ['BED FRAME','SOFT BED'],['BIGGER BED FRAME','BED FOR TWO'],
+ ['TINY BED FRAMES','TWO TINY BEDS'],['TABLE FRAME','DINNER TABLE'],
+ ['LANTERN HOOK','WARM LANTERN'],['PICNIC BLANKET','FAMILY PICNIC']
+];
 const SAVE_KEY='GameHub.hungryHedgie.v3';
 const BERRY_PLACES=[[521,328],[458,298],[447,402],[343,372],[315,249],[214,318],[149,425],[202,193],[390,175],[103,278],[548,424],[278,224]];
 const ASSET_HOME_PATH='../assets/hungryHedgie/home/';
@@ -81,7 +96,7 @@ class HungryHedgie {
   this.pos={x:636,y:302};this.target={...this.pos};this.left=true;
   this.mode='menu';this.muted=false;this.pointer=null;this.notice='Tap a berry. Hedgie will walk to it.';this.noticeTime=3;
   this.delivery=0;this.glow=0;this.bump=0;this.invulnerable=0;this.flows=[];this.particles=[];this.time=0;
-  this.completed=false;this.quilt='rose';this.calm=false;this.savedFrom='new';this.revealAge=0;this.revealFrom=0;this.revealCount=0;this.build();
+  this.completed=false;this.quilt='rose';this.calm=false;this.savedFrom='new';this.revealAge=0;this.revealFrom=0;this.revealCount=0;this.placements=Array(STAGES.length).fill(0);this.pendingPlacement=null;this.justPlaced=0;this.build();
   this.loadProgress();this.background=this.makeBackground();
  }
  build(){
@@ -89,7 +104,7 @@ class HungryHedgie {
   this.friend={x:285,y:442};this.friendGoal={x:205,y:370};this.friendWait=0;
   this.lantern=false;this.flows=[];this.particles=[];this.glow=0;this.bump=0;this.delivery=0;
  }
- unlocks(){return this.completed?STAGES.length:Math.min(STAGES.length,this.stage+Number(this.delivered>=STAGES[this.stage].goal));}
+ unlocks(){return this.completed?STAGES.length:this.placements.filter(v=>v===2).length;}
  loadProgress(){
   let data=saved(SAVE_KEY,null);
   if(!data){
@@ -125,10 +140,24 @@ class HungryHedgie {
   }
   this.quilt=data.quilt==='sky'?'sky':'rose';this.completed=!!data.completed;this.muted=!!data.muted;this.calm=!!data.calm;
   if(this.completed)this.stage=5;
+  const earned=this.delivered>=STAGES[this.stage].goal?2:this.delivered>=STAGES[this.stage].goal/2?1:0;
+  // Existing v3.1 saves have no placement field; treat their already-earned
+  // furniture as placed, so upgrading never takes a child's rewards away.
+  const oldPlacements=STAGES.map((_,i)=>this.completed||i<this.stage?2:i===this.stage?earned:0);
+  if(Array.isArray(data.placements)&&data.placements.length===STAGES.length){
+   this.placements=data.placements.map((v,i)=>Math.min(i<this.stage||this.completed?2:i===this.stage?earned:0,clamp(Number.isFinite(v)?Math.floor(v):0,0,2)));
+   for(let i=0;i<this.stage;i++)this.placements[i]=2;
+  }else this.placements=oldPlacements;
+  if(this.completed)this.placements.fill(2);
+  if(!this.completed&&earned>this.placements[this.stage]){
+   this.pendingPlacement=this.placements[this.stage]+1;
+   this.mode='homeReveal';this.revealAge=0;
+  }
   this.persist();
  }
  persist(){
-  save(SAVE_KEY,{schema:3,chapter:this.stage,delivered:this.delivered,carried:this.carry,
+  save(SAVE_KEY,{schema:4,chapter:this.stage,delivered:this.delivered,carried:this.carry,
+   placements:this.placements.slice(),pendingPlacement:this.pendingPlacement,
    active:this.berries.map(b=>b.active),position:[this.pos.x,this.pos.y],quilt:this.quilt,
    completed:this.completed,muted:this.muted,calm:this.calm});
  }
@@ -141,14 +170,26 @@ class HungryHedgie {
   }catch{}
  }
  advance(){
+  if(!this.completed&&(this.delivered<STAGES[this.stage].goal||this.placements[this.stage]!==2))return;
+  this.pendingPlacement=null;this.justPlaced=0;
   if(this.stage===STAGES.length-1){
    this.completed=true;this.mode='finale';this.carry=0;this.delivered=0;this.build();this.persist();return;
   }
   this.stage++;this.carry=this.delivered=0;this.build();this.pos={x:636,y:302};this.target={...this.pos};
   this.mode='chapterIntro';this.persist();this.toast('A bigger basket for the next adventure!');
  }
- beginFreePlay(){this.completed=true;this.stage=5;this.delivered=this.carry=0;this.build();this.pos={x:636,y:302};this.target={...this.pos};this.mode='play';this.persist();this.toast('We can keep picking berries together!');}
+ beginFreePlay(){this.completed=true;this.placements.fill(2);this.pendingPlacement=null;this.stage=5;this.delivered=this.carry=0;this.build();this.pos={x:636,y:302};this.target={...this.pos};this.mode='play';this.persist();this.toast('We can keep picking berries together!');}
  showHome(){if(this.mode!=='play'||this.carry||this.delivery>0)return;this.cancel();this.mode='homeVisit';this.persist();}
+ placeFurniture(){
+  if(this.mode!=='homeReveal'||this.pendingPlacement===null)return;
+  const phase=this.pendingPlacement;
+  if(phase!==this.placements[this.stage]+1)return;
+  this.placements[this.stage]=phase;this.pendingPlacement=null;
+  this.justPlaced=2.8;this.revealAge=0;
+  this.playSound(phase===2?'win':'home');
+  this.toast(phase===2?PROJECTS[this.stage].finished:PROJECTS[this.stage].first);
+  this.persist();
+ }
  leaveHome(){this.mode='play';this.cancel();this.persist();}
  handleDown(q){
   for(const z of [...this.s.zones].reverse())if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h){z.action();return;}
@@ -156,11 +197,11 @@ class HungryHedgie {
  }
  handleMove(q){if(this.pointer!==q.id||this.mode!=='play'||q.y<113||q.y>501)return;this.target={x:clamp(q.x,49,751),y:clamp(q.y,145,478)};}
  handleUp(q){if(this.pointer===q.id)this.pointer=null;}
- update(dt){this.time+=dt;if(this.mode==='homeReveal')this.revealAge=Math.min(10,this.revealAge+dt);if(this.mode!=='play')return;
+ update(dt){this.time+=dt;if(this.mode==='homeReveal'){this.revealAge=Math.min(10,this.revealAge+dt);this.justPlaced=Math.max(0,this.justPlaced-dt);}if(this.mode!=='play')return;
   this.noticeTime=Math.max(0,this.noticeTime-dt);this.glow=Math.max(0,this.glow-dt);this.bump=Math.max(0,this.bump-dt);this.invulnerable=Math.max(0,this.invulnerable-dt);
   for(const p of this.particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=55*dt;p.life-=dt;}this.particles=this.particles.filter(p=>p.life>0);
   for(const f of this.flows)f.time+=dt;this.flows=this.flows.filter(f=>f.time<.6);
-  if(this.delivery>0){this.delivery=Math.max(0,this.delivery-dt);if(this.delivery===0){this.mode='homeReveal';this.revealAge=0;if(this.delivered>=STAGES[this.stage].goal)this.playSound('win');this.persist();}return;}
+  if(this.delivery>0){this.delivery=Math.max(0,this.delivery-dt);if(this.delivery===0){this.mode='homeReveal';this.revealAge=0;this.justPlaced=0;this.pendingPlacement=this.completed?null:Math.min(2,this.placements[this.stage]+1);this.persist();}return;}
   const k=this.s.keys,direction={x:Number(!!(k.ArrowRight||k.d))-Number(!!(k.ArrowLeft||k.a)),y:Number(!!(k.ArrowDown||k.s))-Number(!!(k.ArrowUp||k.w))};
   if(direction.x||direction.y){const n=Math.hypot(direction.x,direction.y);this.target={x:clamp(this.pos.x+direction.x/n*188*dt,49,751),y:clamp(this.pos.y+direction.y/n*188*dt,145,478)};}
   if(this.bump===0){const dx=this.target.x-this.pos.x,dy=this.target.y-this.pos.y,d=Math.hypot(dx,dy);if(d>.2){const step=Math.min(1,188*dt/d);this.pos.x+=dx*step;this.pos.y+=dy*step;if(Math.abs(dx)>1)this.left=dx<0;}}
@@ -229,7 +270,7 @@ class HungryHedgie {
   this.homeButton();this.soundButton();if(this.mode==='play')this.pauseButton();
  }
  drawTripSteps(cx,y,r=16){
-  const c=this.c,goal=STAGES[this.stage].goal,done=this.completed?2:(this.delivered>=goal?2:this.delivered>=goal/2?1:0);
+  const c=this.c,done=this.completed?2:this.placements[this.stage];
   line(c,cx-r*.1,y,cx+44+r*.1,y,'#c2caaa',5);
   for(let i=0;i<2;i++){
    const x=cx+i*44,filled=i<done;
@@ -244,7 +285,7 @@ class HungryHedgie {
  // The cutaway is an illustrated game scene, not a separate game canvas.
  homeSprite(name,x,y,w,h,alpha=1){return this.image(name,x,y,w,h,false,alpha);}
  homeFurniture(){
-  const c=this.c,level=this.unlocks(),partial=!this.completed&&this.delivered>0&&this.delivered<STAGES[this.stage].goal;
+  const c=this.c,level=this.unlocks(),partial=!this.completed&&this.placements[this.stage]===1;
   const furniture=(threshold,name,x,y,w,h)=>{
    const ready=level>=threshold,building=partial&&this.stage===threshold-1;
    if(!ready&&!building)return;
@@ -320,6 +361,32 @@ class HungryHedgie {
   }
   c.restore();
  }
+ drawPlacementTarget(){
+  // A translucent preview in its REAL destination, never a draggable object.
+  // The hit region is larger than the art so young players can tap imprecisely.
+  const c=this.c,spot=PLACEMENT_SPOTS[this.stage],phase=this.pendingPlacement;
+  if(phase===null)return;
+  const p=.5+.5*Math.sin(this.time*4.8),cx=spot.cx,cy=spot.cy;
+  c.save();
+  ellipse(c,cx,cy+14,spot.hw*.53,spot.hh*.42,`rgba(255,237,132,${.22+p*.16})`);
+  c.strokeStyle=`rgba(252,215,83,${.67+p*.30})`;c.lineWidth=5+p*3;
+  c.beginPath();c.ellipse(cx,cy,spot.hw*.47,spot.hh*.40,0,0,TAU);c.stroke();
+  c.globalAlpha=.66+p*.14;
+  if(phase===1){
+   if(this.stage===2){this.drawConstruction('bedBaby',521,348,102,74);this.drawConstruction('bedBaby',626,350,96,72);}
+   else this.drawConstruction(PROJECTS[this.stage].asset,spot.x,spot.y,spot.w,spot.h);
+  }else{
+   if(this.stage===2){if(!this.homeSprite('bedBaby',521,348,102,74))this.drawFurnitureFallback('bedBaby',521,348,102,74);
+    if(!this.homeSprite('bedBaby',626,350,96,72))this.drawFurnitureFallback('bedBaby',626,350,96,72);}
+   else if(!this.homeSprite(PROJECTS[this.stage].asset,spot.x,spot.y,spot.w,spot.h))this.drawFurnitureFallback(PROJECTS[this.stage].asset,spot.x,spot.y,spot.w,spot.h);
+  }
+  c.restore();
+  // Pointer graphic follows a tiny bob; visual communication without reading.
+  const labelY=Math.min(433,cy+spot.hh*.35+15);
+  this.panel(cx-63,labelY-16,126,32,14,'#fff3bd');
+  this.text('✦ TAP HERE ✦',cx,labelY,15,C.green,800,122);
+  this.clickBox(spot.hx,spot.hy,spot.hw,spot.hh,()=>this.placeFurniture());
+ }
  drawHomeInterior(){
   const c=this.c;
   // Interactive modal: never allow movement behind the room.
@@ -332,24 +399,29 @@ class HungryHedgie {
    ellipse(c,400,207,148,102,'#f6e4c2');rect(c,70,368,661,85,'#c49569');
    ellipse(c,452,216,56,52,'#c3d9c4');
   }
-  this.homeFurniture();c.restore();
-  const full=this.delivered>=STAGES[this.stage].goal;
+  this.homeFurniture();
   const reveal=this.mode==='homeReveal',finale=this.mode==='finale';
-  const title=finale?'A Home for Four!':reveal?(full?PROJECTS[this.stage].done:PROJECTS[this.stage].first):'Our Little Home';
+  const pending=reveal&&this.pendingPlacement!==null;
+  if(pending)this.drawPlacementTarget();
+  c.restore();
+  const full=this.completed||this.delivered>=STAGES[this.stage].goal;
+  const title=finale?'A Home for Four!':reveal?(pending?('PLACE THE '+PLACE_LABELS[this.stage][this.pendingPlacement-1]+'!'):(full?PROJECTS[this.stage].done:PROJECTS[this.stage].first)):'Our Little Home';
   if(reveal){
    // The reward is the focus: an unmissable two-step construction event.
    this.panel(196,72,408,74,21,'#fff2c4');
    this.text(title,400,96,27,C.green,800,390);
-   this.text(full?PROJECTS[this.stage].finished:PROJECTS[this.stage].part,400,127,17,C.ink,650,392);
+   this.text(pending?'Tap the golden glow to put it in place!':(full?PROJECTS[this.stage].finished:PROJECTS[this.stage].part),400,127,17,C.ink,650,392);
    const targets=[{x:211,y:362,r:86},{x:218,y:359,r:95},{x:613,y:384,r:66},{x:438,y:400,r:71},{x:350,y:222,r:72},{x:447,y:413,r:90}];
-   const v=targets[this.stage],pulse=.6+Math.sin(this.revealAge*7)*.18;
-   c.save();c.strokeStyle=`rgba(245,192,72,${pulse})`;c.lineWidth=5;
-   c.beginPath();c.ellipse(v.x,v.y,v.r,v.r*.52,0,0,TAU);c.stroke();c.restore();
-   if(this.revealAge<3.8){for(let i=0;i<11;i++){
-    const theta=i*TAU/11+this.revealAge*.9,orbit=v.r+8+9*Math.sin(this.revealAge*3+i);
-    this.text('✦',v.x+Math.cos(theta)*orbit,v.y+Math.sin(theta)*orbit*.65,16+(i%3)*5,i%2?C.gold:'#fff0be',700);
-   }}
-   if(full&&(this.stage===1||this.stage===2))for(let i=0;i<3;i++)heart(c,290+i*45,285+Math.sin(this.revealAge*4+i)*7,10);
+   if(!pending){
+    const v=targets[this.stage],pulse=.6+Math.sin(this.revealAge*7)*.18;
+    c.save();c.strokeStyle=`rgba(245,192,72,${pulse})`;c.lineWidth=5;
+    c.beginPath();c.ellipse(v.x,v.y,v.r,v.r*.52,0,0,TAU);c.stroke();c.restore();
+    if(this.justPlaced>0){for(let i=0;i<14;i++){
+     const theta=i*TAU/14+this.revealAge*.75,orbit=v.r*.55+(2.8-this.justPlaced)*36+9*Math.sin(this.revealAge*3+i);
+     this.text('✦',v.x+Math.cos(theta)*orbit,v.y+Math.sin(theta)*orbit*.68,17+(i%3)*4,i%2?C.gold:'#fff0be',700);
+    }}
+    if(full&&(this.stage===1||this.stage===2))for(let i=0;i<3;i++)heart(c,290+i*45,285+Math.sin(this.revealAge*4+i)*7,10);
+   }
   }else this.text(title,400,128,26,C.green,750,650);
   // Two large, readable basket milestones remain visible in the interior.
   this.text('BASKET TRIPS',319,483,13,C.green,750);this.drawTripSteps(382,482,14);
@@ -364,7 +436,11 @@ class HungryHedgie {
    }
   }
   if(reveal){
-   if(full&&!this.completed&&this.stage===STAGES.length-1)this.homeAction('Celebrate!',450,461,260,42,()=>this.advance());
+   if(pending){
+    this.panel(450,461,260,42,15,'#fff0c7');
+    this.text('✦  Tap the glow!  ✦',580,482,20,C.green,800);
+   }
+   else if(full&&!this.completed&&this.stage===STAGES.length-1)this.homeAction('Celebrate!',450,461,260,42,()=>this.advance());
    else if(full&&!this.completed)this.homeAction('Next adventure',450,461,260,42,()=>this.advance());
    else if(this.completed)this.homeAction('More berries!',450,461,260,42,()=>this.beginFreePlay());
    else this.homeAction('Keep collecting',450,461,260,42,()=>this.leaveHome());
