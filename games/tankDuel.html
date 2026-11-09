@@ -45,7 +45,8 @@
 'use strict';
 (() => {
 const W=1280, H=800, FIELD_TOP=142, FIELD_BOTTOM=650, TAU=Math.PI*2;
-const BUILD_ID='tankduel-python-art-v20261109';
+const BUILD_ID='tankduel-power-sweep-home-png-v20261109';
+const POWER_MIN=10, POWER_MAX=100, POWER_SWEEP_HALF_SECONDS=1.75; // one rise or fall
 const BG='#121d2d', PANEL='#1d2c3e', WHITE='#eaf1f4', MUTED='#9fb5c1', GOLD='#ffcc63', GREEN='#71d28c', RED='#f5645c';
 const COLORS=['#4fc3eb','#f17061','#94ce71','#bb92ea','#f4bf4b','#dfe0dc'];
 const BODIES={scout:[0,100,150,1],heavy:[1200,155,90,1],artillery:[900,110,110,1.4]};
@@ -211,8 +212,34 @@ class TankDuel {
     this.terrainDirty=true;this.terrainImage=null;this.shots=[];this.fx=[];this.debris=[];this.smoke=[];this.floaters=[];
     this.charge=null;this.aimPointer=null;this.aimPoint=null;this.tutorial=true;
     this.holds=new Map();this.keys=new Set();this.paused=false;this.homeConfirm=false;this.shake=0;
+    this.homeArt=null;this.homePressedArt=null;this.loadHomeArt();
     this.rig=null;this.art={};this.tint={};this.assetStatus='loading';this.assetDetail='';
     this.scenery=new Scenery(this);this.loadArt();
+  }
+  async loadHomeArt(){
+    // These are the same shared navigation PNGs used throughout GameHub.
+    try{this.homeArt=await loadImage('../assets/retBut.png');}
+    catch(e){console.warn('[Tank Duel] Missing shared Home PNG: ../assets/retBut.png');}
+    try{this.homePressedArt=await loadImage('../assets/retBut_clicked.png');}
+    catch(e){console.warn('[Tank Duel] Missing pressed Home PNG: ../assets/retBut_clicked.png');}
+  }
+  drawHomeArt(x,y,size,pressed=false){
+    const im=(pressed&&this.homePressedArt)||this.homeArt;
+    if(im){
+      const w=im.naturalWidth||im.width,h=im.naturalHeight||im.height;
+      const scale=Math.min(size/w,size/h),dw=w*scale,dh=h*scale;
+      this.c.drawImage(im,x+(size-dw)/2,y+(size-dh)/2,dw,dh);
+    } else { // non-intrusive fallback only when the shared asset is unavailable
+      this.box(x,y,size,size,PANEL,13,'#566b7b');this.icon('home',x+size/2,y+size/2,WHITE,size*.27);
+    }
+  }
+  homeButton(x,y,size=92){
+    const held=[...this.holds.values()].some(h=>h.type==='zone'&&h.zone.kind==='home');
+    this.drawHomeArt(x,y,size,held);
+    this.s.zones.push({x,y,w:size,h:size,kind:'home',down:()=>{},up:q=>{
+      // Clicking or tapping the PNG requires releasing within its own touch zone.
+      if(q.x>=x&&q.x<=x+size&&q.y>=y&&q.y<=y+size)this.goHome();
+    }});
   }
   async loadArt(){
     // The Python version renders a *rigged collection of PNG parts*. A JSON file
@@ -308,7 +335,8 @@ class TankDuel {
   }
   startCharge(id){
     if(this.state!=='battle'||this.paused||this.charge)return;
-    const p=this.players[this.active];this.charge={id,from:p.power,elapsed:0};this.tutorial=false;
+    const p=this.players[this.active];p.power=POWER_MIN;
+    this.charge={id,elapsed:0,direction:1};this.tutorial=false;
   }
   finishCharge(id){if(!this.charge||this.charge.id!==id)return;this.charge=null;this.fire();}
   fire(){
@@ -413,7 +441,15 @@ class TankDuel {
       this.settleTanks();
       const up=held('up')||this.keys.has('ArrowUp'),down=held('down')||this.keys.has('ArrowDown');
       p.angle=clamp(p.angle+dt*45*(Number(up)-Number(down)),...this.limits(p));
-      if(this.charge){this.charge.elapsed+=dt;p.power=Math.min(100,this.charge.from+(100-this.charge.from)*this.charge.elapsed/2);}
+      if(this.charge){
+        // Golf-style power sweep: 10 -> 100 -> 10 -> 100, until released.
+        // Release freezes the current power and fires with exactly that strength.
+        this.charge.elapsed+=dt;
+        const phase=(this.charge.elapsed/POWER_SWEEP_HALF_SECONDS)%2;
+        const rising=phase<=1;
+        this.charge.direction=rising?1:-1;
+        p.power=clamp(POWER_MIN+(POWER_MAX-POWER_MIN)*(rising?phase:2-phase),POWER_MIN,POWER_MAX);
+      }
     }
     if(this.state==='flight'){
       this.accumulator=(this.accumulator||0)+dt;
@@ -526,12 +562,15 @@ class TankDuel {
     this.terrainDirty=false;this.terrainImage=cv;return cv;
   }
   trajectory(p){
-    const b=this.projectile(p,p.angle,this.charge?p.power:p.power);
-    const points=[];let last=-10;
-    for(let i=0;i<540;i++){
+    // Exact preview horizon from tankDuel.py: 192 steps at 1/240 s each,
+    // with one guide dot every 24 steps. At rest show the 55-power reference;
+    // while charging, preview the evolving shot strength.
+    const b=this.projectile(p,p.angle,this.charge?p.power:55);
+    const points=[];
+    for(let i=0;i<192;i++){
       const dt=1/240;b.vx+=this.wind*dt;b.vy+=400*WEAPONS[b.weapon][4]*dt;b.x+=b.vx*dt;b.y+=b.vy*dt;
       if(b.x<0||b.x>=W||b.y>=this.ground(b.x))break;
-      if(i-last>=22&&b.y>FIELD_TOP&&b.y<FIELD_BOTTOM){points.push({x:b.x,y:b.y});last=i;}
+      if((i+1)%24===0&&b.y>FIELD_TOP&&b.y<FIELD_BOTTOM)points.push({x:b.x,y:b.y});
     }
     for(let k=0;k<points.length;k++)this.circle(points[k].x,points[k].y,k%2?3:5,k%2?WHITE:GOLD);
   }
@@ -595,9 +634,9 @@ class TankDuel {
     if(this.wind){this.icon(this.wind<0?'left':'right',640,49,GOLD,17+Math.round(Math.abs(this.wind)/35*9));}
     else this.ring(640,49,13,GOLD,4);
     for(let k=0;k<5;k++)this.circle(588+k*26,105,8,Math.abs(this.wind)>k*7?GOLD:'#3c4e5b');
-    // This is deliberately within the 142-pixel HUD, not outside or over the battlefield.
-    this.button('',774,28,90,82,()=>this.goHome(),{icon:'home'});
-    this.text('HOME',820,122,14,MUTED);
+    // The standard GameHub Home PNG lives in the top HUD, clear of both tank panels.
+    this.homeButton(777,22,94);
+    this.text('HOME',824,126,13,MUTED);
   }
   drawFooter(){
     this.box(0,FIELD_BOTTOM,W,H-FIELD_BOTTOM,BG,0);
@@ -611,19 +650,21 @@ class TankDuel {
       const buttonArrow=(x,label,action)=>this.button('',x,707,84,77,()=>{}, {hold:action,icon:label,enabled});
       buttonArrow(20,'left','left');buttonArrow(114,'right','right');
       buttonArrow(249,'down','down');buttonArrow(343,'up','up');
-      // Power is directly adjustable with a touch slider, in addition to hold-to-charge Fire.
-      const slider={x:477,y:710,w:226,h:67};
-      this.box(slider.x,slider.y,slider.w,slider.h,'#253d49',12,'#607886');
+      // Display-only sweep meter. Power selection happens exclusively by
+      // holding and releasing the large Fire button, not by dragging the bars.
+      const meter={x:477,y:710,w:226,h:67};
+      this.box(meter.x,meter.y,meter.w,meter.h,'#253d49',12,'#607886');
+      const fraction=clamp((p.power-POWER_MIN)/(POWER_MAX-POWER_MIN),0,1);
       for(let i=0;i<10;i++){
-        const x=slider.x+12+i*21;
-        this.box(x,slider.y+16,15,35,i*10+10<=p.power+5?(i<5?GREEN:i<8?GOLD:RED):'#415564',5);
+        const x=meter.x+12+i*21;
+        this.box(x,meter.y+16,15,35,fraction>i/10?(i<5?GREEN:i<8?GOLD:RED):'#415564',5);
       }
-      const setPower=q=>{p.power=clamp(Math.round((10+90*(q.x-(slider.x+12))/(slider.w-24))/5)*5,10,100);this.tutorial=false;};
-      if(enabled)this.s.zones.push({...slider,down:setPower,drag:setPower});
+      if(this.charge)this.icon(this.charge.direction>0?'up':'down',meter.x+meter.w/2,meter.y-19,
+        this.charge.direction>0?GREEN:RED,10);
       this.button('',727,702,361,82,
         q=>this.startCharge(q.id),{up:q=>this.finishCharge(q.id),hold:'fire',enabled,primary:true});
       this.icon('fire',774,743,GOLD,24);
-      this.text(this.charge?'CHARGING '+Math.round(p.power)+'%':'HOLD • RELEASE TO FIRE',925,741,this.charge?22:19,WHITE);
+      this.text(this.charge?(this.charge.direction>0?'RISING ':'FALLING ')+Math.round(p.power)+'%':'HOLD • RELEASE TO FIRE',925,741,this.charge?22:19,WHITE);
       this.button('',1110,702,146,82,()=>this.action('pause'),{icon:'pause'});
       this.text('PAUSE',1183,788,13,MUTED);
       if(this.tutorial&&enabled)this.text('Drag to aim',917,679,15,GOLD);
@@ -678,10 +719,11 @@ class TankDuel {
   }
   drawBuild(){
     const p=this.players[this.buildPlayer];
-    this.box(0,0,W,H,BG,0);this.box(36,20,250,76,COLORS[p.color],37);
-    this.badge(p,161,58,25);this.text('PLAYER '+(this.buildPlayer+1),323,59,26,WHITE,'left');
+    // Move the player's colored badge completely clear of Home (24..120).
+    this.box(0,0,W,H,BG,0);this.box(160,20,278,76,COLORS[p.color],37);
+    this.badge(p,203,58,25);this.text('PLAYER '+(this.buildPlayer+1),249,59,26,WHITE,'left');
     if(this.mode==='money'){this.icon('coin',1092,56,GOLD,23);this.text(p.money,1130,58,35,GOLD,'left');}
-    this.text('SELECT A TANK BODY',36,104,17,MUTED,'left');
+    this.text('SELECT A TANK BODY',160,104,17,MUTED,'left');
     for(const [i,name] of Object.keys(BODIES).entries()){
       const x=36+i*202,y=119;
       this.button('',x,y,190,156,()=>this.buy('body',name),{selected:p.body===name});
@@ -730,7 +772,7 @@ class TankDuel {
     this.button(this.buildPlayer===0?'NEXT PLAYER':'START ROUND',680,697,564,85,()=>{if(this.buildPlayer===0){this.buildPlayer=1;this.notice='';}else this.startRound();},{primary:true});
   }
   drawHandoff(){
-    this.s.zones=this.s.zones.filter(z=>z.x===774&&z.y===28);
+    this.s.zones=this.s.zones.filter(z=>z.kind==='home');
     this.box(0,FIELD_TOP,W,FIELD_BOTTOM-FIELD_TOP,'rgba(14,28,39,.53)',0);
     const p=this.players[this.active];
     this.box(300,161,680,476,BG,17,COLORS[p.color]);
@@ -741,11 +783,11 @@ class TankDuel {
       this.icon(icons[k],484+k*142,455,k===2?GOLD:WHITE,25);
       if(k<icons.length-1)this.icon('right',553+k*142,455,MUTED,11);
     }
-    this.text('Aim · Hold to charge · Release to fire',640,514,23,MUTED);
+    this.text('Aim · Hold for rising/falling power · Release to fire',640,514,22,MUTED);
     this.button('READY',440,548,400,78,()=>this.action('begin'),{primary:true});
   }
   drawResult(){
-    this.s.zones=this.s.zones.filter(z=>z.x===774&&z.y===28);
+    this.s.zones=this.s.zones.filter(z=>z.kind==='home');
     const p=this.winner===null?null:this.players[this.winner];
     this.box(360,164,560,260,BG,18,p?COLORS[p.color]:GOLD);
     this.text(p?'PLAYER '+(p.i+1)+' WINS!':'A DRAW!',640,203,36,WHITE);
@@ -768,7 +810,7 @@ class TankDuel {
   drawLeave(){
     this.s.zones=[];this.box(0,0,W,H,'rgba(7,17,27,.83)',0);
     this.box(360,250,560,300,BG,17,GOLD);
-    this.icon('home',640,303,GOLD,27);
+    this.drawHomeArt(606,260,68);
     this.text('Return to GameHub?',640,363,34,WHITE);
     this.text('Your current round will end.',640,408,21,MUTED);
     this.button('STAY',385,460,227,64,()=>{this.homeConfirm=false;},{primary:true});
@@ -786,7 +828,7 @@ class TankDuel {
     if(this.state==='menu'||this.state==='build'){
       // Python original: home in the upper-left on menu. On the workshop,
       // the existing MENU control at the bottom remains available too.
-      this.button('',24,24,96,86,()=>this.goHome(),{icon:'home'});
+      this.homeButton(24,24,96);
     }
     if(this.paused)this.drawPause();
     if(this.homeConfirm)this.drawLeave();
