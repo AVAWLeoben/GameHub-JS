@@ -12,37 +12,43 @@ button[aria-pressed=true]{background:#fff5c4;color:#223f34}
 #notice{position:fixed;bottom:16px;left:12px;max-width:65%;background:#223f34e8;padding:8px 12px;border-radius:9px;pointer-events:none}
 #status{padding:30px;text-align:center}
 </style>
-<style id="python-layout-restore">
-html,body{width:100%;height:100%;overflow:hidden}
-#train-stage{position:fixed;left:50%;top:50%;width:800px;height:600px;
- transform:translate(-50%,-50%) scale(var(--gh-stage-scale,1));transform-origin:center center;
- background:#77b469;overflow:hidden}
-#train-stage>header{position:absolute;left:0;top:0;width:800px;height:70px;z-index:3;
- padding:4px 8px;gap:8px;overflow:hidden;justify-content:center}
-#train-stage>header button{height:49px;min-height:49px;min-width:96px;flex:1 1 96px;padding:2px 6px;
- line-height:18px;font-size:14px}
-#train-stage #home{flex:0 0 65px;height:64px}
-#train-stage #game{position:absolute;top:70px;left:0;width:800px;height:530px}
-#train-stage #zoom{position:absolute;bottom:102px;right:12px}
-#train-stage #notice{position:absolute;bottom:11px;left:12px;max-width:60%}
+
+<style id="gamehub-landscape">
+html,body{margin:0;width:100%;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+#viewport{position:fixed;inset:0;display:grid;place-items:center;container-type:size;box-sizing:border-box;
+ padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px)
+ env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+#train-stage{position:relative;top:auto;left:auto;width:min(100%,133.333dvh);height:auto;max-height:100%;
+ aspect-ratio:4/3;transform:none;background:#77b469;overflow:hidden;container-type:inline-size}
+@supports(width:1cqh){#train-stage{width:min(100cqw,133.333cqh)}}
+#train-stage>header{position:absolute;left:0;top:0;width:100%;height:11.6667%;z-index:3;
+ display:flex;align-items:center;gap:1cqw;justify-content:center;overflow:hidden;
+ padding:.5cqw 1cqw}
+#train-stage>header button{height:6.125cqw;min-height:0;min-width:0;flex:1 1 auto;
+ padding:0 .35cqw;line-height:1.15;font-size:clamp(10px,1.75cqw,15px);border-width:1px;
+ border-radius:1.1cqw}
+#train-stage #home{position:relative;flex:0 0 8.125cqw;height:8cqw}
+#train-stage #home img{width:100%;height:100%;object-fit:contain}
+#train-stage #game{position:absolute;top:11.6667%;left:0;width:100%;height:88.3333%}
+#train-stage #zoom{position:absolute;right:1.5%;bottom:17%;gap:1cqw}
+#train-stage #zoom button{min-width:7cqw;min-height:7cqw;padding:0;font-size:3.5cqw}
+#train-stage #notice{position:absolute;bottom:1.833%;left:1.5%;max-width:60%;
+ font-size:clamp(9px,1.45cqw,15px);padding:1cqw 1.5cqw}
+#orientation-warning{display:none;position:fixed;inset:0;z-index:2147483646;
+ background:#0a1924;color:white;place-content:center;justify-items:center;text-align:center;gap:16px;
+ font:600 20px/1.4 system-ui,sans-serif}
+#orientation-warning a{color:#ffe3a4}
+@media(orientation:portrait){#orientation-warning{display:grid}}
 </style>
 </head><body>
+<div id="viewport"><section id="train-stage">
 <header><a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
 <button data-mode="tiles" aria-pressed="true">▦<br>Tiles</button><button data-mode="draw">✎<br>Draw</button><button data-mode="erase">⌫<br>Erase</button><button data-mode="move">✥<br>Move</button><button id="follow">🚂<br>Train</button><button id="new">↻<br>New</button></header>
 <div id="game"><p id="status" role="status">Loading railway…</p></div>
 <div id="zoom"><button id="out" aria-label="Zoom out">−</button><button id="in" aria-label="Zoom in">+</button></div>
 <div id="notice" role="status">Place tiles or draw rails. Use two fingers to move and zoom.</div>
-<script>
-// Unify the Python top bar and world inside one 800 x 600 logical viewport.
-// Move the existing DOM nodes; events and button IDs are preserved.
-(() => {
- const stage=document.createElement('section');
- stage.id='train-stage';stage.dataset.gamehubStage='800x600';
- const first=document.querySelector('header');
- document.body.insertBefore(stage,first);
- for(const node of [first,document.getElementById('game'),document.getElementById('zoom'),document.getElementById('notice')])stage.append(node);
-})();
-</script>
+</section></div>
+<div id="orientation-warning" role="status"><div>Turn your device sideways to play</div><a href="../index.html">Return to Game Menu</a></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -378,4 +384,4 @@ function launch(){
  new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:530,backgroundColor:'#77b469',scene:Railway,
  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
-</script><script src="./layout-compat.js"></script></body></html>
+</script></body></html>

@@ -10,61 +10,73 @@
     *{box-sizing:border-box}
     html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#0a0a1e;color:#fff}
     body{font-family:Arial,Helvetica,sans-serif;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
-    #hub-stage{width:800px;height:600px;position:fixed;top:50%;left:50%;overflow:hidden;
-      transform:translate(-50%,-50%) scale(var(--gh-stage-scale,1));transform-origin:center center;
-      background:#0a0a1e url('./assets/main_menu_background.png') 0 0 / 800px 600px no-repeat}
+    #hub-stage{position:relative;overflow:hidden;background:#0a0a1e url('./assets/main_menu_background.png') 0 0 / 100% 100% no-repeat}
     #menu-scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;
       overscroll-behavior-y:contain;touch-action:pan-y;scrollbar-width:none;-webkit-overflow-scrolling:touch}
     #menu-scroll::-webkit-scrollbar{display:none}
-    #tile-list{position:relative;height:1160px;width:800px}
-    .game-tile{position:absolute;width:100px;height:100px;display:block;touch-action:pan-y;
+    #tile-list{position:relative;height:193.333333%;width:100%}
+    .game-tile{position:absolute;width:12.5cqw;height:12.5cqw;display:block;touch-action:pan-y;
       text-decoration:none;outline-offset:3px;-webkit-tap-highlight-color:transparent}
-    .game-tile img{display:block;width:100px;height:100px;object-fit:contain;pointer-events:none;
+    .game-tile img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;
       -webkit-user-drag:none}
     .game-tile:focus-visible{outline:4px solid #fff6a4;border-radius:12px}
     .game-tile:active{filter:brightness(1.16)}
     .visually-hidden{position:absolute;clip-path:inset(50%);overflow:hidden;width:1px;height:1px;white-space:nowrap}
-    h1{position:absolute;z-index:2;top:50px;left:0;width:800px;margin:0;
-      font-size:48px;line-height:52px;font-weight:400;text-align:center;
+    h1{position:absolute;z-index:2;top:8.333333%;left:0;width:100%;margin:0;
+      font-size:6cqw;line-height:6.5cqw;font-weight:400;text-align:center;
       text-shadow:0 2px 5px #000;pointer-events:none}
     #rotate-menu{display:none;position:fixed;z-index:50;inset:0;background:#0a1924;
       color:#fff;place-content:center;text-align:center;padding:20px;font:600 23px system-ui}
     @media (orientation:portrait){#rotate-menu{display:grid}}
   </style>
+<style id="gamehub-menu-landscape">
+#menu-viewport{position:fixed;inset:0;display:grid;place-items:center;container-type:size;
+ box-sizing:border-box;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px)
+ env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+#hub-stage{position:relative;top:auto;left:auto;overflow:hidden;
+ transform:none;width:min(100%,133.333dvh);height:auto;max-height:100%;aspect-ratio:4/3;
+ container-type:inline-size;background-position:0 0;background-size:100% 100%}
+@supports(width:1cqh){#hub-stage{width:min(100cqw,133.333cqh)}}
+#menu-scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden}
+#tile-list{width:100%;height:193.333333%}
+.game-tile{width:12.5cqw;height:12.5cqw;position:absolute}
+.game-tile img{width:100%;height:100%;object-fit:contain}
+h1{left:0;top:8.333333%;width:100%;font-size:6cqw;line-height:6.5cqw}
+</style>
 </head>
 <body>
-  <main id="hub-stage" data-gamehub-stage="800x600" aria-label="GameHub game selection">
+  <div id="menu-viewport"><main id="hub-stage" aria-label="GameHub game selection">
     <nav id="menu-scroll" aria-label="Choose a game; scroll down for more">
       <div id="tile-list">
-      <a class="game-tile" href="./games/wasteMatch.html" style="left:50px;top:200px" aria-label="Memory Game"><img src="./assets/card_back.png" alt="" draggable="false"><span class="visually-hidden">Memory Game</span></a>
-      <a class="game-tile" href="./games/wasteSort.html" style="left:200px;top:200px" aria-label="Sort Game"><img src="./assets/banana.png" alt="" draggable="false"><span class="visually-hidden">Sort Game</span></a>
-      <a class="game-tile" href="./games/wasteCar.html" style="left:350px;top:200px" aria-label="Waste Car"><img src="./assets/truck.png" alt="" draggable="false"><span class="visually-hidden">Waste Car</span></a>
-      <a class="game-tile" href="./games/wasteTrain.html" style="left:500px;top:200px" aria-label="Rail Game"><img src="./assets/train_button.png" alt="" draggable="false"><span class="visually-hidden">Rail Game</span></a>
-      <a class="game-tile" href="./games/wastePaint.html" style="left:650px;top:200px" aria-label="Paint Game"><img src="./assets/paint_button.png" alt="" draggable="false"><span class="visually-hidden">Paint Game</span></a>
-      <a class="game-tile" href="./games/wasteCollect.html" style="left:50px;top:400px" aria-label="Collect Game"><img src="./assets/trashBin_green.png" alt="" data-pressed="assets/trashBin_green_open.png" draggable="false"><span class="visually-hidden">Collect Game</span></a>
-      <a class="game-tile" href="./games/wasteJump.html" style="left:200px;top:400px" aria-label="Jump Game"><img src="./assets/wasteJump/player.png" alt="" draggable="false"><span class="visually-hidden">Jump Game</span></a>
-      <a class="game-tile" href="./games/wasteFork.html" style="left:350px;top:400px" aria-label="Fork Game"><img src="./assets/wasteFork/forklift_whole.png" alt="" draggable="false"><span class="visually-hidden">Fork Game</span></a>
-      <a class="game-tile" href="./games/wastePuzzle.html" style="left:500px;top:400px" aria-label="Puzzle Game"><img src="./assets/puzzlepiece.png" alt="" draggable="false"><span class="visually-hidden">Puzzle Game</span></a>
-      <a class="game-tile" href="./games/wasteTower.html" style="left:650px;top:400px" aria-label="Tower Game"><img src="./assets/BuildTower/crate.png" alt="" draggable="false"><span class="visually-hidden">Tower Game</span></a>
-      <a class="game-tile" href="./games/jetStream.html" style="left:50px;top:600px" aria-label="Jet Stream"><img src="./assets/jetStream/combatjet-highres.png" alt="" draggable="false"><span class="visually-hidden">Jet Stream</span></a>
-      <a class="game-tile" href="./games/wasteTacToe.html" style="left:200px;top:600px" aria-label="Tic Tac Toe"><img src="./assets/wasteTacToe.png" alt="" draggable="false"><span class="visually-hidden">Tic Tac Toe</span></a>
-      <a class="game-tile" href="./games/climbingHog.html" style="left:350px;top:600px" aria-label="Scary Hog"><img src="./assets/ClimbingHog/ghost.png" alt="" draggable="false"><span class="visually-hidden">Scary Hog</span></a>
-      <a class="game-tile" href="./games/wasteTeroids.html" style="left:500px;top:600px" aria-label="WasteTeroids"><img src="./assets/Asteroid.png" alt="" draggable="false"><span class="visually-hidden">WasteTeroids</span></a>
-      <a class="game-tile" href="./games/wasteRace.html" style="left:650px;top:600px" aria-label="WasteRace"><img src="./assets/wasteBin_empty.png" alt="" draggable="false"><span class="visually-hidden">WasteRace</span></a>
-      <a class="game-tile" href="./games/wastePilot.html" style="left:50px;top:800px" aria-label="WastePilot"><img src="./assets/wastePilot/stick.png" alt="" draggable="false"><span class="visually-hidden">WastePilot</span></a>
-      <a class="game-tile" href="./games/wastePong.html" style="left:200px;top:800px" aria-label="WastePong"><img src="./assets/pong.jpg" alt="" draggable="false"><span class="visually-hidden">WastePong</span></a>
-      <a class="game-tile" href="./games/wastePizza.html" style="left:350px;top:800px" aria-label="WastePizza"><img src="./assets/wastePizza/pizza.png" alt="" draggable="false"><span class="visually-hidden">WastePizza</span></a>
-      <a class="game-tile" href="./games/wasteHockey.html" style="left:500px;top:800px" aria-label="WasteHockey"><img src="./assets/wastehockey/puck.png" alt="" draggable="false"><span class="visually-hidden">WasteHockey</span></a>
-      <a class="game-tile" href="./games/wasteGOL.html" style="left:650px;top:800px" aria-label="WasteGOL"><img src="./assets/wasteGOL/tree.png" alt="" draggable="false"><span class="visually-hidden">WasteGOL</span></a>
-      <a class="game-tile" href="./games/wasteBird.html" style="left:50px;top:1000px" aria-label="WasteBird"><img src="./assets/wasteBird/frame-2.png" alt="" data-pressed="assets/wasteBird/dead.png" draggable="false"><span class="visually-hidden">WasteBird</span></a>
-      <a class="game-tile" href="./games/wasteHog.html" style="left:200px;top:1000px" aria-label="WasteHog"><img src="./assets/wasteHog/gift.png" alt="" draggable="false"><span class="visually-hidden">WasteHog</span></a>
-      <a class="game-tile" href="./games/hungryHedgie.html" style="left:350px;top:1000px" aria-label="HungryHog"><img src="./assets/hungryHedgie/hedgie.png" alt="" draggable="false"><span class="visually-hidden">HungryHog</span></a>
-      <a class="game-tile" href="./games/wasteKart.html" style="left:500px;top:1000px" aria-label="WasteKart"><img src="./assets/WasteKart/kart_icon.png" alt="" draggable="false"><span class="visually-hidden">WasteKart</span></a>
-      <a class="game-tile" href="./games/tankDuel.html" style="left:650px;top:1000px" aria-label="Tank Duel"><img src="./assets/tank_game_assets/menu_icon.png" alt="" draggable="false"><span class="visually-hidden">Tank Duel</span></a>
+      <a class="game-tile" href="./games/wasteMatch.html" style="left:6.25%;top:17.241379%" aria-label="Memory Game"><img src="./assets/card_back.png" alt="" draggable="false"><span class="visually-hidden">Memory Game</span></a>
+      <a class="game-tile" href="./games/wasteSort.html" style="left:25%;top:17.241379%" aria-label="Sort Game"><img src="./assets/banana.png" alt="" draggable="false"><span class="visually-hidden">Sort Game</span></a>
+      <a class="game-tile" href="./games/wasteCar.html" style="left:43.75%;top:17.241379%" aria-label="Waste Car"><img src="./assets/truck.png" alt="" draggable="false"><span class="visually-hidden">Waste Car</span></a>
+      <a class="game-tile" href="./games/wasteTrain.html" style="left:62.5%;top:17.241379%" aria-label="Rail Game"><img src="./assets/train_button.png" alt="" draggable="false"><span class="visually-hidden">Rail Game</span></a>
+      <a class="game-tile" href="./games/wastePaint.html" style="left:81.25%;top:17.241379%" aria-label="Paint Game"><img src="./assets/paint_button.png" alt="" draggable="false"><span class="visually-hidden">Paint Game</span></a>
+      <a class="game-tile" href="./games/wasteCollect.html" style="left:6.25%;top:34.482759%" aria-label="Collect Game"><img src="./assets/trashBin_green.png" alt="" data-pressed="assets/trashBin_green_open.png" draggable="false"><span class="visually-hidden">Collect Game</span></a>
+      <a class="game-tile" href="./games/wasteJump.html" style="left:25%;top:34.482759%" aria-label="Jump Game"><img src="./assets/wasteJump/player.png" alt="" draggable="false"><span class="visually-hidden">Jump Game</span></a>
+      <a class="game-tile" href="./games/wasteFork.html" style="left:43.75%;top:34.482759%" aria-label="Fork Game"><img src="./assets/wasteFork/forklift_whole.png" alt="" draggable="false"><span class="visually-hidden">Fork Game</span></a>
+      <a class="game-tile" href="./games/wastePuzzle.html" style="left:62.5%;top:34.482759%" aria-label="Puzzle Game"><img src="./assets/puzzlepiece.png" alt="" draggable="false"><span class="visually-hidden">Puzzle Game</span></a>
+      <a class="game-tile" href="./games/wasteTower.html" style="left:81.25%;top:34.482759%" aria-label="Tower Game"><img src="./assets/BuildTower/crate.png" alt="" draggable="false"><span class="visually-hidden">Tower Game</span></a>
+      <a class="game-tile" href="./games/jetStream.html" style="left:6.25%;top:51.724138%" aria-label="Jet Stream"><img src="./assets/jetStream/combatjet-highres.png" alt="" draggable="false"><span class="visually-hidden">Jet Stream</span></a>
+      <a class="game-tile" href="./games/wasteTacToe.html" style="left:25%;top:51.724138%" aria-label="Tic Tac Toe"><img src="./assets/wasteTacToe.png" alt="" draggable="false"><span class="visually-hidden">Tic Tac Toe</span></a>
+      <a class="game-tile" href="./games/climbingHog.html" style="left:43.75%;top:51.724138%" aria-label="Scary Hog"><img src="./assets/ClimbingHog/ghost.png" alt="" draggable="false"><span class="visually-hidden">Scary Hog</span></a>
+      <a class="game-tile" href="./games/wasteTeroids.html" style="left:62.5%;top:51.724138%" aria-label="WasteTeroids"><img src="./assets/Asteroid.png" alt="" draggable="false"><span class="visually-hidden">WasteTeroids</span></a>
+      <a class="game-tile" href="./games/wasteRace.html" style="left:81.25%;top:51.724138%" aria-label="WasteRace"><img src="./assets/wasteBin_empty.png" alt="" draggable="false"><span class="visually-hidden">WasteRace</span></a>
+      <a class="game-tile" href="./games/wastePilot.html" style="left:6.25%;top:68.965517%" aria-label="WastePilot"><img src="./assets/wastePilot/stick.png" alt="" draggable="false"><span class="visually-hidden">WastePilot</span></a>
+      <a class="game-tile" href="./games/wastePong.html" style="left:25%;top:68.965517%" aria-label="WastePong"><img src="./assets/pong.jpg" alt="" draggable="false"><span class="visually-hidden">WastePong</span></a>
+      <a class="game-tile" href="./games/wastePizza.html" style="left:43.75%;top:68.965517%" aria-label="WastePizza"><img src="./assets/wastePizza/pizza.png" alt="" draggable="false"><span class="visually-hidden">WastePizza</span></a>
+      <a class="game-tile" href="./games/wasteHockey.html" style="left:62.5%;top:68.965517%" aria-label="WasteHockey"><img src="./assets/wastehockey/puck.png" alt="" draggable="false"><span class="visually-hidden">WasteHockey</span></a>
+      <a class="game-tile" href="./games/wasteGOL.html" style="left:81.25%;top:68.965517%" aria-label="WasteGOL"><img src="./assets/wasteGOL/tree.png" alt="" draggable="false"><span class="visually-hidden">WasteGOL</span></a>
+      <a class="game-tile" href="./games/wasteBird.html" style="left:6.25%;top:86.206897%" aria-label="WasteBird"><img src="./assets/wasteBird/frame-2.png" alt="" data-pressed="assets/wasteBird/dead.png" draggable="false"><span class="visually-hidden">WasteBird</span></a>
+      <a class="game-tile" href="./games/wasteHog.html" style="left:25%;top:86.206897%" aria-label="WasteHog"><img src="./assets/wasteHog/gift.png" alt="" draggable="false"><span class="visually-hidden">WasteHog</span></a>
+      <a class="game-tile" href="./games/hungryHedgie.html" style="left:43.75%;top:86.206897%" aria-label="HungryHog"><img src="./assets/hungryHedgie/hedgie.png" alt="" draggable="false"><span class="visually-hidden">HungryHog</span></a>
+      <a class="game-tile" href="./games/wasteKart.html" style="left:62.5%;top:86.206897%" aria-label="WasteKart"><img src="./assets/WasteKart/kart_icon.png" alt="" draggable="false"><span class="visually-hidden">WasteKart</span></a>
+      <a class="game-tile" href="./games/tankDuel.html" style="left:81.25%;top:86.206897%" aria-label="Tank Duel"><img src="./assets/tank_game_assets/menu_icon.png" alt="" draggable="false"><span class="visually-hidden">Tank Duel</span></a>
       </div>
     </nav>
     <h1>Game Menu</h1>
-  </main>
+  </main></div>
   <div id="rotate-menu">Turn your device sideways to play</div>
   <script>
     // The Python menu had five 100x100 image buttons per row at x=50,200,...
@@ -80,15 +92,6 @@
       window.addEventListener('pointerup',reset);
       window.addEventListener('pageshow',reset);
     }
-    // Scale the 800x600 source layout uniformly, keeping all touch targets aligned.
-    const stage=document.getElementById('hub-stage');
-    const insetProbe=document.createElement('div');
-    insetProbe.style.cssText='position:fixed;inset:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);pointer-events:none;visibility:hidden';
-    document.body.append(insetProbe);
-    function fit(){const r=insetProbe.getBoundingClientRect();stage.style.setProperty('--gh-stage-scale',Math.min(r.width/800,r.height/600));}
-    fit();window.addEventListener('resize',fit,{passive:true});
-    window.visualViewport?.addEventListener('resize',fit,{passive:true});
-    window.addEventListener('orientationchange',fit,{passive:true});
   </script>
 </body>
 </html>

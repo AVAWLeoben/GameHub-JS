@@ -20,32 +20,41 @@ dialog button,dialog a{display:inline-block;padding:12px 18px;margin:5px;min-hei
 @media(max-width:600px){#app{grid-template-columns:60px minmax(0,1fr) 60px;gap:4px;padding:6px}.icon{width:56px;height:56px}.tools{gap:8px}.swatch{width:44px;height:44px}}
 @media(max-height:450px){.icon{width:56px;height:56px}.tools{gap:4px}.swatch{width:44px;height:44px}}
 </style>
-<style id="python-layout-restore">
-html,body{width:100%;height:100%;overflow:hidden}
-#app{display:block;position:fixed;top:50%;left:50%;width:800px;height:600px;
-     padding:0;margin:0;gap:0;overflow:hidden;transform:translate(-50%,-50%) scale(var(--gh-stage-scale,1));
-     transform-origin:center center;background:#fff}
-#app>.tools{position:absolute;display:block;width:100px;height:490px;overflow:visible}
-#app>.tools:first-child{left:10px;top:10px}
+
+<style id="gamehub-landscape">
+html,body{width:100%;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+#viewport{position:fixed;inset:0;display:grid;place-items:center;container-type:size;box-sizing:border-box;
+ padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px)
+ env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+#app{position:relative;top:auto;left:auto;display:block;padding:0;margin:0;gap:0;
+ width:min(100%,133.333dvh);max-height:100%;height:auto;aspect-ratio:4/3;
+ transform:none;overflow:hidden;background:#fff;container-type:inline-size}
+@supports(width:1cqh){#app{width:min(100cqw,133.333cqh)}}
+#app>.tools{position:absolute;display:block;width:12.5%;height:81.667%;overflow:visible}
+#app>.tools:first-child{left:1.25%;top:1.667%}
 #app>.tools:first-child>*{position:absolute;left:0;top:0}
-#app>.tools:first-child>#save{top:100px}
-#app>.tools:first-child>#clear{top:400px}
-#brushes{left:690px;top:10px}
+#app>.tools:first-child>#save{top:12.5cqw}
+#app>.tools:first-child>#clear{top:50cqw}
+#brushes{left:86.25%;top:1.667%}
 #brushes>*{position:absolute;left:0;top:0}
-#brushes>*:nth-child(2){top:150px}
-#brushes>*:nth-child(3){top:300px}
-#brushes>*:nth-child(4){top:410px}
-#app .icon{width:100px;height:100px;padding:0;border:2px solid transparent;border-radius:8px}
-#brushes>*:nth-child(4){width:75px;height:75px}
-#game{position:absolute;left:121px;top:31px;width:548px;height:428px;min-width:548px;min-height:428px}
-#palette{position:absolute;left:10px;top:500px;width:780px;height:66px;display:flex;flex-wrap:nowrap;
-         justify-content:flex-start;gap:5px;padding:0;overflow:visible}
-#palette>.swatch{width:66px;height:66px;flex:0 0 66px;border:2px solid #fff}
-@media(max-width:600px),(max-height:450px){#app .icon{width:100px;height:100px}
- #brushes>*:nth-child(4){width:75px;height:75px}#palette>.swatch{width:66px;height:66px}}
+#brushes>*:nth-child(2){top:18.75cqw}
+#brushes>*:nth-child(3){top:37.5cqw}
+#brushes>*:nth-child(4){top:51.25cqw}
+#app .icon{width:12.5cqw!important;height:12.5cqw!important;padding:0;border:2px solid transparent;border-radius:6px}
+#brushes>*:nth-child(4){width:9.375cqw!important;height:9.375cqw!important}
+#app #game{position:absolute;left:15.125%;top:5.1667%;width:68.5%;height:71.3333%;min-width:0;min-height:0}
+#app #game canvas{display:block;touch-action:none}
+#palette{position:absolute;left:1.25%;top:83.3333%;width:97.5%;height:11%;display:flex;flex-wrap:nowrap;
+ justify-content:flex-start;gap:.625cqw;padding:0;overflow:visible}
+#palette>.swatch{width:8.25cqw;height:8.25cqw;flex:0 0 8.25cqw;border:2px solid #fff;box-shadow:none}
+#orientation-warning{display:none;position:fixed;inset:0;z-index:2147483646;
+ background:#0a1924;color:white;place-content:center;justify-items:center;text-align:center;gap:16px;
+ font:600 20px/1.4 system-ui,sans-serif}
+#orientation-warning a{color:#ffe3a4}
+@media(orientation:portrait){#orientation-warning{display:grid}}
 </style>
 </head><body>
-<main id="app" data-gamehub-stage="800x600">
+<div id="viewport"><main id="app">
 <nav class="tools" aria-label="Drawing actions">
 <a class="icon" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
 <button class="icon" id="save" aria-label="Save drawing"><img src="../assets/saveBut.png" alt=""></button>
@@ -54,7 +63,8 @@ html,body{width:100%;height:100%;overflow:hidden}
 <div id="game" aria-label="Drawing canvas"><p id="status">Loading Waste Paint…</p></div>
 <nav id="brushes" class="tools" aria-label="Drawing tools"></nav>
 <div id="palette" role="group" aria-label="Paint colours"></div>
-</main>
+</main></div>
+<div id="orientation-warning" role="status"><div>Turn your device sideways to play</div><a href="../index.html">Return to Game Menu</a></div>
 <dialog id="export"><h2>Your drawing</h2><p>Download your picture, or touch and hold it to save or share on iPad.</p>
 <img id="preview" alt="Your finished drawing"><a id="download" download="my_drawing.png">Download PNG</a><button id="share" hidden>Share</button><button id="close">Back to painting</button></dialog>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
@@ -166,4 +176,4 @@ function launch(){
    scene:Paint,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},
    audio:{noAudio:true},render:{antialias:true}});
 }
-</script><script src="./layout-compat.js"></script></body></html>
+</script></body></html>

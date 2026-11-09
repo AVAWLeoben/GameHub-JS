@@ -1,6 +1,45 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><title>tankDuel · GameHub</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#152e3d}#game{position:fixed;inset:0}canvas{display:block;touch-action:none}#error{position:fixed;inset:0;z-index:3;background:#152e3d;font:20px system-ui;color:white;padding:24px}a{color:#d1eda9}</style></head><body><div id="game"></div><div id="error" hidden>The game engine could not load. Check your connection and reload. <a href="../index.html">Home</a></div>
-<script src="./native-stage.js"></script>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><title>tankDuel · GameHub</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#152e3d}#game{position:fixed;inset:0}canvas{display:block;touch-action:none}#error{position:fixed;inset:0;z-index:3;background:#152e3d;font:20px system-ui;color:white;padding:24px}a{color:#d1eda9}</style><style id="gamehub-landscape">
+/* Like WastePizza: one proportional landscape game frame; Phaser FITs its own canvas. */
+html,body{margin:0;width:100%;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+#viewport{position:fixed;inset:0;box-sizing:border-box;
+ padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px)
+         env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);
+ display:grid;place-items:center;container-type:size;overflow:hidden}
+#playfield{position:relative;overflow:hidden;isolation:isolate;transform:translateZ(0);
+ width:min(100%,133.333dvh);aspect-ratio:4/3;max-height:100%;container-type:inline-size}
+@supports (width:1cqh){#playfield{width:min(100cqw,133.333cqh)}}
+#playfield #game{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+ max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;margin:0!important}
+#playfield canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#playfield header{position:absolute!important;top:1.25cqw!important;left:1.25cqw!important;
+ width:12.5cqw!important;height:12.5cqw!important;padding:0!important;z-index:6!important;background:transparent!important}
+#playfield header .home-button,#playfield header .home-button img{width:100%!important;height:100%!important}
+#playfield #home{top:1.25cqw!important;left:1.25cqw!important;right:auto!important;
+ width:9cqw!important;height:9cqw!important;z-index:6!important}
+#playfield #pause{top:1.25cqw!important;right:1.25cqw!important;z-index:6!important}
+#playfield .panel{position:absolute!important;inset:0!important;z-index:4;box-sizing:border-box;
+ padding:1.75cqw!important;overflow:auto;align-items:center;justify-content:center}
+#playfield .panel .box{max-width:94%;padding:clamp(8px,2cqw,24px)!important;
+ font-size:clamp(11px,1.9cqw,18px);}
+#playfield .panel h1{font-size:clamp(18px,3.5cqw,34px);margin:.35em 0}
+#playfield .panel h2{font-size:clamp(15px,2.8cqw,26px);margin:.35em 0}
+#playfield .panel p{margin:.45em 0}
+#playfield .panel button{min-height:clamp(33px,5.5cqw,52px);padding:clamp(4px,.8cqw,12px) clamp(10px,2.3cqw,24px);
+ font-size:clamp(12px,2cqw,18px)}
+#orientation-warning{display:none;position:fixed;inset:0;z-index:2147483646;box-sizing:border-box;
+ background:#0a1924;color:white;place-content:center;justify-items:center;text-align:center;gap:16px;padding:24px;
+ font:600 20px/1.4 system-ui,sans-serif}
+#orientation-warning a{color:#ffe3a4}
+@media(orientation:portrait){#orientation-warning{display:grid}}
+</style>
+</head><body>
+<div id="viewport"><div id="playfield">
+<div id="game"></div><div id="error" hidden>The game engine could not load. Check your connection and reload. <a href="../index.html">Home</a></div>
+</div></div>
+<div id="orientation-warning" role="status"><div>Turn your device sideways to play</div><a href="../index.html">Return to Game Menu</a></div>
+
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 const BODIES={scout:[0,100,150,1],heavy:[1200,155,90,1],artillery:[900,110,110,1.4]},WEAPONS={cannon:[0,36,56,1,1],twin_cannon:[1000,24,48,2,1],mortar:[800,49,85,1,1.15],rocket_pod:[1600,22,62,3,.8],plasma_gun:[2000,62,43,1,.65]},COLORS=['#62c7ef','#ee887b','#99cf7f','#b99ae2','#eec86e','#d8ddd6'];
@@ -63,4 +102,4 @@ new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3
 
 }
 
-</script><script src="./layout-compat.js"></script></body></html>
+</script></body></html>
