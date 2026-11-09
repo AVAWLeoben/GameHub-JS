@@ -532,10 +532,25 @@ class Kart {
     return this.mask("fall_zone", p) && !this.bridge(p);
   }
   field() {
-    // Fit the complete 960 × 600 map between two compact control rows.
-    const w = this.s.w;
-    const h = w * 600 / 960;
-    return {x: 0, y: (this.s.h - h) / 2, w, h};
+    // The map occupies the entire game surface, including the space formerly
+    // reserved for top and bottom bars. World/screen transforms share this rect.
+    return {x: 0, y: 0, w: this.s.w, h: this.s.h};
+  }
+
+  overlayLabel(primary, secondary = '') {
+    const s = this.s;
+    // Floating HUD: keep the center of the course accessible and visible.
+    s.box(252, 5, 296, secondary ? 47 : 30, '#14243cce', 10);
+    s.text(primary, 400, secondary ? 19 : 20, 19, '#ffe08a');
+    if (secondary) s.text(secondary, 400, 39, 13, '#f1f5f4');
+  }
+
+  overlayButton(label, x, y, w, fn, selected = false) {
+    const s = this.s;
+    s.box(x, y, w, 37, '#15273cdb', 10);
+    s.outline(x, y, w, 37, selected ? '#ffe4a0' : '#b7c9d8', 2, 10);
+    s.text(label, x + w / 2, y + 19, 16, '#fff9ec');
+    s.zones.push({x, y, w, h: 37, fn});
   }
 
   kartColor(player) {
@@ -1716,52 +1731,37 @@ class Kart {
     if (this.mode === 'karts') { this.drawKartPicker(); return; }
     if (this.mode === 'ready') { this.drawReady(); return; }
 
-    if (this.mode === 'draw') {
-      this.mapDraw();
-      const track = this.field();
-      const footer = track.y + track.h;
-      s.box(0, 0, s.w, track.y, '#17223b', 0);
-      s.text(this.entry.name || this.geom.name, 400, 14, 22, '#ffd15c');
-      s.text(`P${this.drawPlayer + 1} · Lap ${this.drawLap + 1}/${this.laps}${this.drawSeconds ? ' · ' + Math.ceil(this.drawTime) + 's' : ''}`,
-        400, 37, 16, '#d3dce8');
-      s.box(0, footer, s.w, s.h - footer, '#17223b', 0);
-      s.button('CLEAR LAP', 10, footer + 3, 146, 44, () => this.beginDraw(), false, 20);
-      s.text(this.warning || 'Trace a loop from the flag.', 400, footer + 25, 16, '#d1dfd9');
-      s.button('FINISH LAP', 638, footer + 3, 152, 44, () => this.sealLap(), true, 20);
-      return;
-    }
+     if (this.mode === 'draw') {
+       this.mapDraw();
+       this.overlayLabel(this.entry.name || this.geom.name,
+         `P${this.drawPlayer + 1} · LAP ${this.drawLap + 1}/${this.laps}` +
+         (this.drawSeconds ? ` · ${Math.ceil(this.drawTime)}s` : ''));
+       this.overlayButton('↺ CLEAR', 82, 555, 118, () => this.beginDraw());
+       this.overlayButton('✓ FINISH', 652, 555, 138, () => this.sealLap(), true);
+       return;
+     }
     if (['countdown', 'race', 'result'].includes(this.mode)) {
       this.mapDraw();
-      const track = this.field(), footer = track.y + track.h;
-      if (this.mode === 'countdown' || this.mode === 'race') {
-        s.box(0, 0, s.w, track.y, '#171d31', 0);
-        s.text('WASTE KART', 201, 25, 25, '#ffd15c');
-        if (this.mode === 'countdown') {
-          s.text(this.reflex ? 'TAP YOUR COLOR ON GREEN!' : 'START YOUR ENGINES!',
-            484, 25, 19);
-          this.startLights();
-        } else {
-          s.text(`${this.elapsed.toFixed(1)}s`, 552, 25, 26);
-          s.text(`${this.laps} LAP${this.laps > 1 ? 'S' : ''}`, 381, 25, 18, '#c6d5da');
-          if (this.elapsed < .75) {
-            s.box(281, 117, 238, 89, '#2a9857', 20);
-            s.text('GO!', 400, 161, 72, '#fff8d9');
-          }
-        }
-        s.box(0, footer, s.w, s.h - footer, '#171d31', 0);
-        const step = 776 / Math.max(1, this.players);
-        this.racers?.forEach((r, i) => {
-          const left = 10 + i * step, px = left + 5;
-          s.text(`P${i + 1} ${r.finished ? 'FINISH!' : 'RACING'}`, left + 8, footer + 13,
-            this.players === 4 ? 16 : 20, this.kartColor(i), 'left');
-          s.box(px, footer + 29, step - 20, 11, '#3c4b66', 5);
-          s.box(px, footer + 29, (step - 20) * clamp(r.d / (r.route.length || 1), 0, 1),
-            11, this.kartColor(i), 5);
-        });
-        this.amulets('race');
-        if (this.mode === 'race') s.button('PAUSE', 671, 3, 117, 44,
-          () => s.pause(), false, 21);
-      }
+       if (this.mode === 'countdown' || this.mode === 'race') {
+         this.overlayLabel(this.mode === 'countdown' ? 'GET READY!' :
+           `${this.elapsed.toFixed(1)}s · ${this.laps} LAP${this.laps > 1 ? 'S' : ''}`);
+         if (this.mode === 'countdown') this.startLights();
+         else if (this.elapsed < .75) {
+           s.box(326, 238, 148, 82, '#2a9857df', 18);
+           s.text('GO!', 400, 279, 59, '#fff8d9');
+         }
+         // Small translucent progress meters float over the map's bottom edge.
+         const step = 550 / Math.max(1, this.players);
+         this.racers?.forEach((r, i) => {
+           const x = 210 + i * step;
+           s.box(x, 569, step - 9, 23, '#16263cce', 6);
+           s.box(x + 4, 584, (step - 17) * clamp(r.d / (r.route.length || 1), 0, 1),
+             4, this.kartColor(i), 2);
+           s.text(`P${i + 1}`, x + (step - 9) / 2, 578, 13, this.kartColor(i));
+         });
+         this.amulets('race');
+         if (this.mode === 'race') this.overlayButton('Ⅱ', 745, 5, 45, () => s.pause());
+       }
       if (this.mode === 'result') {
         s.card('RACE FINISHED!',
           this.results.map((r, i) =>
@@ -1966,16 +1966,16 @@ class HubScene extends Phaser.Scene{
    this.zones=[];this.veil();this.text('PAUSED',400,this.h/2-55,45,'#ffd15c');
    this.button('RESUME',250,this.h/2,300,64,()=>this.pause(),true,28);
   }
-  const homeY=['draw','countdown','race'].includes(this.gameplay?.mode)?2:11;
-  const home=this.button('',9,homeY,62,45,()=>{});
+  const homeY=['draw','countdown','race'].includes(this.gameplay?.mode)?5:11;
+  const home=this.button('',9,homeY,52,39,()=>{});
   home.tag='home';home.up=q=>{
-   if(q.x>=9&&q.x<=71&&q.y>=home.y&&q.y<=home.y+home.h){
+   if(q.x>=9&&q.x<=61&&q.y>=home.y&&q.y<=home.y+home.h){
     this.gameplay?.persist?.();location.href='../index.html';
    }
   };
   const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');
-  if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',17,homeY+1,46,43))
-   this.text('⌂',40,homeY+22,35);
+  if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',14,homeY+1,41,37))
+   this.text('⌂',35,homeY+20,30);
   this.tex.refresh();
  }
 
