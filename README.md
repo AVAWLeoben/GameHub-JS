@@ -1,59 +1,36 @@
-# GameHub — eight JavaScript ports
+# Hungry Hedgie — A Cosy Home for Four (first implementation pass)
 
-Copy the `games` directory from this ZIP into the repository root, replacing the corresponding empty HTML files. The existing index.html already links to these filenames.
+## Installation
 
-## Included games
+**Upload/merge the contents of `games/` and `assets/` into the root of `GameHub-JS`, preserving their folder structure.** Specifically replace `games/hungryHedgie.html` and add the new `assets/hungryHedgie/home/` directory (8 tiny WebP art assets). Retain all existing `assets/hungryHedgie/*.png`, `assets/retBut.png`, `assets/retBut_clicked.png` and `index.html`. No other games are modified. The HTML file is self-contained except for Phaser 3.90 CDN and image files.
 
-| File | Gameplay |
-| --- | --- |
-| wasteHog.html | Automatic platform jumping, touch steering, gift collection, height and best score |
-| hungryHedgie.html | Berry collection and delivery; bed, garden and picnic progression; saved basket and stage |
-| wasteBird.html | Tap-to-flap flight, pipe gaps, coins, incoming rockets and saved best score |
-| tankDuel.html | Local two-player artillery; free/coin workshops, bodies, weapons, upgrades, fuel, wind and destructible terrain |
-| wastePizza.html | Recipe matching, ingredient placement and removal, completed orders and gradually larger recipes |
-| wasteKart.html | One to four local players, original track catalog, route drawing, one/three laps, four-track cups, reaction starts, power-ups, hazards and best-run ghosts |
-| wasteGOL.html | Conway's Game of Life; paint cells, run/pause, single-step, speed, glider and random seeds |
-| wastePong.html | Solo against the computer or local two-player Pong, first to seven |
+The assets have illustrated SVG source files under `art_source/` in the source archive. Those SVG files are **not required at runtime**; upload WebPs under `assets` instead. This first art pack was drawn as editable vector illustrations because the proposed generated illustrations were unavailable. The game retains all original PNG character and exterior sprites and layers the new furniture separately.
 
-Each HTML is self-contained apart from the Phaser CDN and the existing game assets. No Python runtime, npm build, or additional shared JavaScript file is required.
+## Included now
 
-## Existing files to retain
+* One 800×600 Phaser/CANVAS logical scene (no compatibility JavaScript, no secondary coordinate transform).
+* Six chapters: 6/3, 8/4, 8/4, 10/5, 10/5, 12/6 (goal/carry capacity). Two trips per chapter.
+* A permanent interior scene: tap the burrow **when the basket is empty**, or enter it automatically after a berry delivery.
+* Two-phase furniture: a partly built piece after the first basket, a completed piece after the second. Furniture persists in later chapters.
+* Larger bed, two little beds, table, pantry, lantern, family picnic; partner after chapter 2, two children after chapter 3. Family members reuse the project's hedgie sprite at different sizes and have distinctive little accessories; separate authored character PNGs are a later art pass.
+* Two reversible quilt colours, original GameHub PNG Home icon and sound/pause controls, sound toggle.
+* Existing slow patrolling grumpy hedgehog, soft question mark warning, 0.7s bump, 3s immunity, no lost berries, **Calm forest** option on welcome/pause.
+* Stage progression, persistent completed home, relaxed repeatable picking after chapter 6.
+* Validated `GameHub.hungryHedgie.v3` saves; migration from JS `hedgie-js-v1` and Python/Pygbag `GameHub.hungryHedgie.v2` saved values where accessible.
 
-- `index.html` at the repository root.
-- `assets/retBut.png` and `assets/retBut_clicked.png`.
-- The existing `assets/wasteHog`, `assets/hungryHedgie`, `assets/wasteBird`, and `assets/wastePizza` artwork.
-- The shared coin sprite in `assets/wastePilot/coin/star coin rotate 1.png`.
-- The complete `assets/WasteKart` directory, including catalog.json, geometry JSON, track images, masks, hazard manifests and sprites. Preserve capitalization exactly.
-- `assets/tank_game_assets`, including rig/tank_rig.json and all referenced part sprites. Tank Duel also supports the older root-level `tank_game_assets` location.
+## Still planned
 
-The assets are not included in this ZIP. All game references are relative, including the Home link (`../index.html`). Serve through GitHub Pages or a local web server: WasteKart and Tank Duel load JSON, so opening the HTML via file:// is not a supported way to test those asset loads. Phaser 3.90.0 loads from cdnjs and requires an internet connection.
+* New separately illustrated partner/kid hedgehog sprites matching the actual project character art, character animation and a more interactive family interior.
+* Additional forest composition using the shared pine/broadleaf PNG trees, a refined patrol loop, torch/dusk lighting, celebratory finale and audio polish.
+* Real iPhone/iPad with **the repository's original PNG assets** testing. Controlled browser checks use original file paths but cannot retrieve your repository artwork from this offline runtime. The WebP additions have been rendered and loaded in the browser test harness.
 
-## Touch and controls
+## Quality checks completed
 
-The Home PNG, pause button and game controls are inside each game's canvas. Games pause when the tab loses focus. Layout checks cover landscape and portrait iPad proportions; artwork with a fixed map aspect ratio keeps that aspect ratio.
+* JavaScript syntax.
+* Menu → collecting → first partial delivery → interior → second delivery → unlocked bed → next chapter.
+* All six chapter transitions, family unlock count, final scene and repeat play; saved progress restore.
+* Legacy three-stage JS migration (stage 2 → new chapter 4). Missing-WebP fallback.
+* Layout bounds and canvas input correspondence at 1024×768, 844×390, 1180×820 and 600×900; iPhone portrait rotation prompt and desktop portrait access.
+* Browser checks used a simulated Phaser shell; live CDN Phaser and on-device touch remain unverified.
 
-- Hog: hold the left/right half; keyboard arrows or A/D.
-- Hedgie: tap/drag a destination; arrows or WASD also work. Berries are safe when the neighbour bumps you.
-- Bird: tap anywhere, Space or Up to flap.
-- Pizza: choose a topping, tap the pizza, or drag an existing topping off to remove it. The counts must match exactly, including zero for unrequested ingredients.
-- Tank Duel: pass the tablet between turns. Drag over the battlefield to aim, adjust angle/power with buttons, hold movement buttons, then Fire. Keyboard arrows aim/move; Space fires.
-- Kart: each player draws their route in turn. During countdown and racing, each player uses their own coloured button for the reaction start and collected power-ups. A star does not prevent falling. Fall recovery moves the kart forward to the next safe point on its drawn route after a delay.
-- Life: pause to paint; each gesture consistently paints or erases rather than repeatedly toggling the same cell.
-- Pong: solo controls the right paddle; two-player mode assigns each touch to its starting half. Keyboard arrows control the right paddle; W/S controls the left in two-player mode.
-
-## Porting and validation notes
-
-These are JavaScript adaptations, not pixel-identical reproductions of the Python rendering. Menus, touch targets and transitions have been rebuilt. Bird obstacle spacing, Hog platform generation and several Kart hazard timing/visual effects are adapted. Tank Duel can show procedural tanks if its optional rig artwork cannot load.
-
-WasteKart reads the original authored track data and implements the train, cactus lanes, gorge logs, comet impacts/craters and ramp jump, phased ghosts, curious fairies, spiral/strike cats and rocket chompers. Track masks govern road speed and falling; overpass drawing uses geometry/layer data. Special hazard animations and rescue effects are simpler than in the Python version. Existing Python saves are not migrated; browser saves use new keys.
-
-Verified in this environment:
-
-- Syntax of all eight final HTML inline scripts.
-- Render paths and control bounds at four iPad-like aspect ratios, using a canvas harness.
-- Pause-screen input isolation and menu/result transitions.
-- Life oscillator rules; exact recipe counts; Hedgie pickup/delivery and progression; Hog landing; Bird collisions; Pong victory.
-- Tank damage, crater deformation, purchase affordability and payouts.
-- Kart route drawing, countdown reactions, race completion, cup results, and stars still allowing falls, using generated fixtures.
-
-Not verified here: browser/Phaser integration, real iPad touch performance, actual artwork rendering or the complete real-world hazard manifests. Those asset packs were not attached. A deployment playtest of each game, particularly the sixteen Kart tracks and tank rig, is still needed before treating these ports as release-tested replacements.
+Tip: To bypass a cached HTML response after uploading to GitHub Pages, append `?v=3` to the game URL.
