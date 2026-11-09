@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Waste Train · GameHub</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#77b469;color:white;font:16px system-ui;overscroll-behavior:none}
@@ -11,12 +11,38 @@ button[aria-pressed=true]{background:#fff5c4;color:#223f34}
 #zoom{position:fixed;right:12px;bottom:12px;display:flex;gap:8px}#zoom button{font-size:28px;background:#3582a7}
 #notice{position:fixed;bottom:16px;left:12px;max-width:65%;background:#223f34e8;padding:8px 12px;border-radius:9px;pointer-events:none}
 #status{padding:30px;text-align:center}
-</style></head><body>
+</style>
+<style id="python-layout-restore">
+html,body{width:100%;height:100%;overflow:hidden}
+#train-stage{position:fixed;left:50%;top:50%;width:800px;height:600px;
+ transform:translate(-50%,-50%) scale(var(--gh-stage-scale,1));transform-origin:center center;
+ background:#77b469;overflow:hidden}
+#train-stage>header{position:absolute;left:0;top:0;width:800px;height:70px;z-index:3;
+ padding:4px 8px;gap:8px;overflow:hidden;justify-content:center}
+#train-stage>header button{height:49px;min-height:49px;min-width:96px;flex:1 1 96px;padding:2px 6px;
+ line-height:18px;font-size:14px}
+#train-stage #home{flex:0 0 65px;height:64px}
+#train-stage #game{position:absolute;top:70px;left:0;width:800px;height:530px}
+#train-stage #zoom{position:absolute;bottom:102px;right:12px}
+#train-stage #notice{position:absolute;bottom:11px;left:12px;max-width:60%}
+</style>
+</head><body>
 <header><a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
 <button data-mode="tiles" aria-pressed="true">▦<br>Tiles</button><button data-mode="draw">✎<br>Draw</button><button data-mode="erase">⌫<br>Erase</button><button data-mode="move">✥<br>Move</button><button id="follow">🚂<br>Train</button><button id="new">↻<br>New</button></header>
 <div id="game"><p id="status" role="status">Loading railway…</p></div>
 <div id="zoom"><button id="out" aria-label="Zoom out">−</button><button id="in" aria-label="Zoom in">+</button></div>
 <div id="notice" role="status">Place tiles or draw rails. Use two fingers to move and zoom.</div>
+<script>
+// Unify the Python top bar and world inside one 800 x 600 logical viewport.
+// Move the existing DOM nodes; events and button IDs are preserved.
+(() => {
+ const stage=document.createElement('section');
+ stage.id='train-stage';stage.dataset.gamehubStage='800x600';
+ const first=document.querySelector('header');
+ document.body.insertBefore(stage,first);
+ for(const node of [first,document.getElementById('game'),document.getElementById('zoom'),document.getElementById('notice')])stage.append(node);
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -349,7 +375,7 @@ function launch(){
     });
   }
  }
- new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:520,backgroundColor:'#77b469',scene:Railway,
+ new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:530,backgroundColor:'#77b469',scene:Railway,
  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
-</script></body></html>
+</script><script src="./layout-compat.js"></script></body></html>

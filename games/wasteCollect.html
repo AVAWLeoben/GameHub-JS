@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Waste Collect · GameHub</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#0a0a1e;color:white;font:18px system-ui;overscroll-behavior:none}
@@ -12,6 +12,7 @@
 </style></head><body>
 <a id="home" href="../index.html" aria-label="Return to Game Menu"><img src="../assets/retBut.png" alt=""><img class="pressed" src="../assets/retBut_clicked.png" alt=""></a>
 <main id="game" aria-label="Waste Collect"><p id="status" role="status">Loading Waste Collect…</p></main>
+<script src="./native-stage.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -129,4 +130,4 @@ function launch(){
  new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#0a0a1e',scene:Collect,
   scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
-</script></body></html>
+</script><script src="./layout-compat.js"></script></body></html>

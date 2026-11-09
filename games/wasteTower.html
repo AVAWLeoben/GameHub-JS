@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Waste Tower · GameHub</title>
 <style>
 body{margin:0;background:#dceaf0;color:#223842;font:18px system-ui;overscroll-behavior:none}
@@ -7,6 +7,7 @@ body{margin:0;background:#dceaf0;color:#223842;font:18px system-ui;overscroll-be
 #status{position:absolute;top:42%;width:100%;text-align:center;white-space:pre-wrap;pointer-events:none}
 </style></head><body>
 <main id="game" aria-label="Waste Tower"><p id="status" role="status">Loading Waste Tower…</p></main>
+<script src="./native-stage.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -172,4 +173,4 @@ function launch(){
  new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#dceaf0',scene:Tower,
  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
-</script></body></html>
+</script><script src="./layout-compat.js"></script></body></html>

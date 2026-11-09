@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Waste Hockey · GameHub</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#0f2742;color:#fff;font:18px system-ui;overscroll-behavior:none}
@@ -30,6 +30,7 @@ button[aria-pressed="true"]{border:3px solid #fff;background:#36805b}button:disa
 <button id="play">PLAY!</button>
 </div></section>
 <section id="result" class="panel" hidden><div class="box"><h1>TIME IS UP!</h1><h2 id="finalscore"></h2><h2 id="winner"></h2><button id="again">Play again</button><button id="settings">Change mode</button></div></section>
+<script src="./native-stage.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -274,5 +275,5 @@ function launch() {
     scene:Hockey,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
 </script>
-</body>
+<script src="./layout-compat.js"></script></body>
 </html>

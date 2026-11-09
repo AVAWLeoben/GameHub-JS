@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Waste Jump · GameHub</title>
 <style>
 body{margin:0;background:#151b34;color:#fff8e9;font:18px system-ui;overscroll-behavior:none}
@@ -17,6 +17,7 @@ h1{color:#ffcc70;margin:0 0 24px;font-size:36px}p{line-height:1.5}#action{min-wi
 <button id="pause" aria-label="Pause game" hidden>Ⅱ</button>
 <div id="game"><p id="status" role="status">Loading Waste Jump…</p></div>
 <section id="panel" class="panel" hidden><div class="box"><h1 id="title">WASTE JUMP</h1><p id="message">TAP TO JUMP<br>Hop over roadworks!<br>One tap · One jump</p><button id="action">▶ Play</button></div></section>
+<script src="./native-stage.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -175,4 +176,4 @@ function launch(){
  new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#151b34',scene:Runner,
   scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
-</script></body></html>
+</script><script src="./layout-compat.js"></script></body></html>

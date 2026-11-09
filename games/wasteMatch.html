@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1,viewport-fit=cover">
 <title>Memory Game · GameHub</title>
 <style>
   body { margin: 0; background: #0a1923; color: white; font: 16px system-ui; }
@@ -20,6 +20,13 @@
   canvas { display: block; touch-action: none; }
   #status { text-align: center; }
 </style>
+<style id="python-layout-restore">
+  html, body { width:100%; height:100%; overflow:hidden; }
+  header { position:fixed; top:max(6px,env(safe-area-inset-top)); left:max(6px,env(safe-area-inset-left));
+           width:88px; height:88px; padding:0; background:transparent; z-index:5; }
+  #game { width:100%; height:100vh; height:100dvh; }
+</style>
+
 <header>
   <a class="home-button" href="../index.html" aria-label="Return to Game Menu">
     <img src="../assets/retBut.png" alt="">
@@ -29,6 +36,7 @@
 <main id="game" aria-label="Memory Game">
   <p id="status" role="status">Loading Memory Game…</p>
 </main>
+<script src="./native-stage.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -196,4 +204,5 @@ function startGame() {
   });
 }
 </script>
+<script src="./layout-compat.js"></script>
 </html>

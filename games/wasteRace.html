@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Waste Race · GameHub</title>
 <style>body{margin:0;background:#1e3036;color:white;font:18px system-ui;overscroll-behavior:none}#game{width:100%;height:100vh;height:100dvh}canvas{display:block;touch-action:none}#status{position:absolute;top:40%;width:100%;text-align:center;white-space:pre-wrap;pointer-events:none}</style></head>
 <body><main id="game" aria-label="Waste Race"><p id="status">Loading Waste Race…</p></main>
+<script src="./native-stage.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -212,6 +213,6 @@ function launch(){
   }
  }
  new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:'#1e3036',scene:Race,
- scale:{mode:Phaser.Scale.RESIZE,width:'100%',height:'100%'},audio:{noAudio:true}});
+ scale:{mode:Phaser.Scale.FIT,width:800,height:600,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
-</script></body></html>
+</script><script src="./layout-compat.js"></script></body></html>

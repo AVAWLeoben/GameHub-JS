@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Waste Car · GameHub</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#163641;color:white;font:18px system-ui;overscroll-behavior:none}
@@ -23,6 +23,7 @@ h1{color:#ffdd4f}#status{padding:100px 20px;text-align:center;white-space:pre-wr
 <p id="hint">Hold a finger to drive toward it. Release to brake.<br>Follow the purple arrow!</p>
 <button id="action">Start driving</button><button id="restart" hidden>Restart</button>
 </div></section>
+<script src="./native-stage.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.90.0/phaser.min.js"></script>
 <script>
 'use strict';
@@ -295,4 +296,4 @@ function launch(){
   new Phaser.Game({type:Phaser.AUTO,parent:'game',width:800,height:600,backgroundColor:'#325c4e',
     scene:Driving,scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},audio:{noAudio:true}});
 }
-</script></body></html>
+</script><script src="./layout-compat.js"></script></body></html>

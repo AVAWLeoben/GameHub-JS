@@ -37,54 +37,25 @@ const pizzaClamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const pizzaInside = (p, r) => p.x >= r.x && p.y >= r.y && p.x <= r.x + r.w && p.y <= r.y + r.h;
 
 function pizzaLayout(w, h) {
-  const gap = pizzaClamp(h * 0.014, 6, 12);
-  const wide = w / h >= 1.65;
-  let pizza, card, board, instruction;
-  if (wide) {
-    const d = h - gap * 2;
-    pizza = {x: gap, y: gap, w: d, h: d};
-    const rightX = pizza.x + d + gap;
-    const rightW = w - rightX - gap;
-    const panelW = Math.min((rightW - gap) / 2, (h - gap * 2) * 291 / 491);
-    const bx = rightX + (rightW - panelW * 2 - gap) / 2;
-    const by = (h - panelW * 491 / 291) / 2;
-    card = {x: bx, y: by, w: panelW, h: panelW * 973 / 775};
-    board = {x: bx + panelW + gap, y: by, w: panelW, h: panelW * 491 / 291};
-    instruction = by >= 30
-      ? {x: rightX + rightW / 2, y: h - 18, w: rightW}
-      : {x: card.x + card.w / 2, y: (card.y + card.h + h) / 2, w: card.w, wrap: true};
-  } else {
-    const rightW = pizzaClamp(w * 0.245, 174, 320);
-    const leftW = w - rightW - gap * 3;
-    const d = Math.min(h - gap * 2, leftW);
-    pizza = {x: gap + (leftW - d) / 2, y: (h - d) / 2, w: d, h: d};
-    const rightX = w - rightW - gap;
-    const cardH = Math.min(h * 0.40, rightW * 973 / 775);
-    const cardW = cardH * 775 / 973;
-    card = {x: rightX + (rightW - cardW) / 2, y: gap, w: cardW, h: cardH};
-    const boardH = Math.min(h - cardH - gap * 3, rightW * 491 / 291);
-    const boardW = boardH * 291 / 491;
-    board = {x: rightX + (rightW - boardW) / 2, y: h - gap - boardH, w: boardW, h: boardH};
-    instruction = null;
-  }
-  // The four ingredients occupy the cutting surface, above its handle.
-  const inset = board.w * 0.085;
-  const cellGap = Math.max(6, board.w * 0.045);
-  const cell = (board.w - inset * 2 - cellGap) / 2;
-  const tray = Array.from({length: 4}, (_, type) => ({
-    x: board.x + inset + (type % 2) * (cell + cellGap),
-    y: board.y + board.h * 0.065 + Math.floor(type / 2) * (cell + cellGap),
-    w: cell, h: cell, type
-  }));
-  const buttonSize = pizzaClamp(h * 0.09, 48, 68);
-  const home = {x: gap, y: gap, w: buttonSize, h: buttonSize};
-  const clear = {x: gap, y: h - gap - buttonSize, w: buttonSize, h: buttonSize};
-  const resultW = Math.min(330, pizza.w - 20);
-  const resultH = Math.min(300, h - 16);
-  const result = {x: pizza.x + (pizza.w - resultW) / 2, y: (h - resultH) / 2, w: resultW, h: resultH};
-  const next = {x: result.x + 18, y: result.y + result.h - 66, w: result.w - 36, h: 48};
-  return {w, h, wide, pizza, card, board, tray, home, clear, result, next, instruction,
-    toppingSize: pizzaClamp(pizza.w * 0.15, 44, 110)};
+  // Original wastePizza.py setup: an 800x600 Pygame stage, not a fluid 3-column
+  // web layout. Keep the recipe ABOVE the cutting board at the right edge.
+  const scale = Math.min(w / 800, h / 600);
+  const ox = (w - 800 * scale) / 2, oy = (h - 600 * scale) / 2;
+  const rect = (x, y, width, height) => ({
+    x: ox + x * scale, y: oy + y * scale, w: width * scale, h: height * scale
+  });
+  const pizza = rect(0, 0, 600, 600);
+  const card = rect(600, 0, 200, 250); // Recipe(700,125), size 200x250
+  const board = rect(591, 266, 218, 368); // Cuttingboard(700,450), scaled 75%
+  const tray = Array.from({length: 4}, (_, type) =>
+    ({...rect(611 + (type % 2) * 85, 286 + Math.floor(type / 2) * 95, 75, 75), type}));
+  const home = rect(10, 10, 100, 100);
+  const clear = rect(10, 500, 75, 75);
+  const result = rect(230, 145, 340, 310);
+  const next = rect(258, 379, 284, 56);
+  return {w, h, scale, stage:rect(0,0,800,600), wide:false,
+    pizza, card, board, tray, home, clear, result, next,
+    instruction:null, toppingSize:100*scale};
 }
 
 class PizzaGame {
@@ -109,7 +80,8 @@ class PizzaGame {
       [types[i], types[j]] = [types[j], types[i]];
     }
     const count = 1 + Math.floor(this.random() * 4);
-    for (const type of types.slice(0, count)) this.need[type] = 2 + Math.floor(this.random() * 4);
+    this.order = types.slice(0, count);
+    for (const type of this.order) this.need[type] = 2 + Math.floor(this.random() * 4);
     this.mode = 'play';
     this.dirty = true;
   }
@@ -217,10 +189,9 @@ function drawPizzaGame(c, game, assets) {
     c.fill();
   };
   c.clearRect(0, 0, w, h);
-  // Cover the viewport without stretching the kitchen artwork.
-  const bg = assets.kitchen;
-  const k = Math.max(w / bg.width, h / bg.height);
-  c.drawImage(bg, (w - bg.width * k) / 2, (h - bg.height * k) / 2, bg.width * k, bg.height * k);
+  // Source: SCREEN.blit(BACKGROUND_IMAGE, (0,0)), sized 800x600.
+  c.fillStyle = '#7e5538'; c.fillRect(0,0,w,h);
+  image('kitchen',l.stage);
   image('pizza', l.pizza);
   image('recipe', l.card);
   image('board', l.board);
@@ -229,21 +200,17 @@ function drawPizzaGame(c, game, assets) {
     image('i' + r.type, {x: r.x + pad, y: r.y + pad, w: r.w - pad * 2, h: r.h - pad * 2});
   }
   const counts = game.counts();
-  const rows = [0, 1, 2, 3].filter(type => game.need[type] || counts[type]);
+  const rows = (game.order || [0,1,2,3]).filter(type => game.need[type] > 0);
   const card = l.card;
-  text('ORDER', card.x + card.w / 2, card.y + card.h * 0.135, pizzaClamp(card.w * 0.095, 12, 24));
-  const rowH = card.h * 0.59 / 4;
   rows.forEach((type, index) => {
-    const cy = card.y + card.h * 0.29 + rowH * (index + 0.5);
-    const size = Math.min(rowH - 2, card.w * 0.22);
-    image('i' + type, {x: card.x + card.w * 0.15, y: cy - size / 2, w: size, h: size});
-    const correct = counts[type] === game.need[type];
-    const extra = counts[type] > game.need[type];
-    text(`${counts[type]} / ${game.need[type]}`, card.x + card.w * 0.60, cy,
-      pizzaClamp(card.w * 0.12, 16, 28), correct ? '#306b36' : extra ? '#ae3029' : '#513527');
-    if (correct) {
-      const mark = Math.min(rowH * 0.6, card.w * 0.13);
-      image('check', {x: card.x + card.w * 0.80, y: cy - mark / 2, w: mark, h: mark});
+    const cy = card.y + (66 + index * 40) * l.scale;
+    text(`${game.need[type]}×`, card.x + 36*l.scale, cy, 29*l.scale, '#17120c');
+    const imageRect = {x:card.x + 100*l.scale, y:cy - 27*l.scale,
+                       w:60*l.scale, h:60*l.scale};
+    image('i' + type, imageRect);
+    if (counts[type] === game.need[type]) {
+      image('check', {x:imageRect.x + 5*l.scale,y:imageRect.y + 5*l.scale,
+                      w:50*l.scale,h:50*l.scale});
     }
   });
   const topping = (piece, held = false) => {
@@ -256,14 +223,11 @@ function drawPizzaGame(c, game, assets) {
   game.pieces.forEach((piece, index) => {
     if (game.active?.index !== index) topping(piece);
   });
-  const score = `${game.completed} served`;
-  const scoreX = l.home.x + l.home.w + 8;
-  box({x: scoreX, y: l.home.y + 4, w: 104, h: 30}, '#fff7e6e8', 10);
-  text(score, scoreX + 52, l.home.y + 19, 15);
   if (game.mode === 'play') {
-    box(l.clear, game.active?.button === 'clear' ? '#ecd0a6' : '#fff7e6ed', 10);
-    image('pizza', {x: l.clear.x + 6, y: l.clear.y + 1, w: l.clear.w - 12, h: l.clear.h - 12});
-    text('Clear', l.clear.x + l.clear.w / 2, l.clear.y + l.clear.h - 8, 12);
+    image('pizza', l.clear);
+    c.strokeStyle = game.active?.button === 'clear' ? '#ffffff' : '#111111';
+    c.lineWidth = Math.max(1,2*l.scale);
+    c.strokeRect(l.clear.x,l.clear.y,l.clear.w,l.clear.h);
   }
   if (l.instruction) {
     const message = counts.some((n, i) => n > game.need[i]) ? 'Drag extra toppings off the pizza' : 'Drag toppings onto the pizza';
@@ -406,7 +370,7 @@ function startPizza() {
     type: Phaser.CANVAS,
     parent: host,
     backgroundColor: '#7e5538',
-    scale: {mode: Phaser.Scale.RESIZE, width: host.clientWidth, height: host.clientHeight},
+    scale: {mode: Phaser.Scale.FIT, width: 800, height: 600, autoCenter: Phaser.Scale.CENTER_BOTH},
     input: {mouse: false, touch: false, keyboard: false, gamepad: false},
     render: {antialias: true},
     scene: PizzaScene
@@ -422,5 +386,5 @@ function startPizza() {
 startPizza();
 
   </script>
-</body>
+<script src="./layout-compat.js"></script></body>
 </html>
