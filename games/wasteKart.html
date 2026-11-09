@@ -19,8 +19,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;-webkit-text-size-adju
          env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);
  display:grid;place-items:center;container-type:size;overflow:hidden}
 #playfield{position:relative;overflow:hidden;isolation:isolate;transform:translateZ(0);
- width:min(100%,133.333dvh);aspect-ratio:4/3;max-height:100%;container-type:inline-size}
-@supports (width:1cqh){#playfield{width:min(100cqw,133.333cqh)}}
+ width:100%;height:100%;container-type:inline-size}
 #playfield #game{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
  max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;margin:0!important}
 #playfield canvas{display:block;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
@@ -533,8 +532,10 @@ class Kart {
     return this.mask("fall_zone", p) && !this.bridge(p);
   }
   field() {
-    // wasteKart.py TRACK_RECT: 30,79,740,462 (world space is 960x600).
-    return {x: 30, y: 79, w: 740, h: 462};
+    // Fit the complete 960 × 600 map between two compact control rows.
+    const w = this.s.w;
+    const h = w * 600 / 960;
+    return {x: 0, y: (this.s.h - h) / 2, w, h};
   }
 
   kartColor(player) {
@@ -590,13 +591,17 @@ class Kart {
     this.mode = "draw";
     this.warning = "Draw a loop from the flag and back.";
   }
+  onTrack(p) {
+    const r = this.field();
+    return p.x >= r.x && p.x <= r.x+r.w && p.y >= r.y && p.y <= r.y+r.h;
+  }
   down(p) {
-    if (this.mode !== "draw" || this.pointer !== undefined) return;
+    if (this.mode !== "draw" || this.pointer !== undefined || !this.onTrack(p)) return;
     this.pointer = p.id;
     this.move(p);
   }
   move(p) {
-    if (this.mode !== "draw" || p.id !== this.pointer) return;
+    if (this.mode !== "draw" || p.id !== this.pointer || !this.onTrack(p)) return;
     const q = this.world(p),
       last = this.draft.at(-1),
       d = dist(q, last);
@@ -1713,47 +1718,48 @@ class Kart {
 
     if (this.mode === 'draw') {
       this.mapDraw();
-      this.amulets('preview');
-      s.box(0, 0, 800, 72, '#17223b', 0);
-      s.text(this.entry.name || this.geom.name, 400, 24, 31, '#ffd15c');
-      s.text(`PLAYER ${this.drawPlayer + 1} · LAP ${this.drawLap + 1}/${this.laps} · ${this.drawSeconds ? Math.ceil(this.drawTime) + 's' : 'No limit'}`,
-        400, 59, 18, '#d3dce8');
-      s.box(0, 544, 800, 56, '#17223b', 0);
-      s.button('CLEAR LAP', 25, 550, 170, 42, () => this.beginDraw());
-      s.text(this.warning || 'Draw the route with your finger. Lift to pause.', 410, 571, 16, '#d1dfd9');
-      s.button('FINISH LAP', 625, 550, 150, 42, () => this.sealLap(), true);
+      const track = this.field();
+      const footer = track.y + track.h;
+      s.box(0, 0, s.w, track.y, '#17223b', 0);
+      s.text(this.entry.name || this.geom.name, 400, 14, 22, '#ffd15c');
+      s.text(`P${this.drawPlayer + 1} · Lap ${this.drawLap + 1}/${this.laps}${this.drawSeconds ? ' · ' + Math.ceil(this.drawTime) + 's' : ''}`,
+        400, 37, 16, '#d3dce8');
+      s.box(0, footer, s.w, s.h - footer, '#17223b', 0);
+      s.button('CLEAR LAP', 10, footer + 3, 146, 44, () => this.beginDraw(), false, 20);
+      s.text(this.warning || 'Trace a loop from the flag.', 400, footer + 25, 16, '#d1dfd9');
+      s.button('FINISH LAP', 638, footer + 3, 152, 44, () => this.sealLap(), true, 20);
       return;
     }
     if (['countdown', 'race', 'result'].includes(this.mode)) {
       this.mapDraw();
-      // Python HUD: top 73 px, bottom 56 px. No controls outside the stage.
+      const track = this.field(), footer = track.y + track.h;
       if (this.mode === 'countdown' || this.mode === 'race') {
-        s.box(0, 0, 800, 73, '#171d31', 0);
-        s.text('WASTE KART', 220, 27, 34, '#ffd15c');
+        s.box(0, 0, s.w, track.y, '#171d31', 0);
+        s.text('WASTE KART', 201, 25, 25, '#ffd15c');
         if (this.mode === 'countdown') {
           s.text(this.reflex ? 'TAP YOUR COLOR ON GREEN!' : 'START YOUR ENGINES!',
-            427, 60, 19);
+            484, 25, 19);
           this.startLights();
         } else {
-          s.text(`${this.elapsed.toFixed(1)}s`, 572, 28, 30);
-          s.text(`${this.laps} LAP${this.laps > 1 ? 'S' : ''}`, 400, 57, 19, '#c6d5da');
+          s.text(`${this.elapsed.toFixed(1)}s`, 552, 25, 26);
+          s.text(`${this.laps} LAP${this.laps > 1 ? 'S' : ''}`, 381, 25, 18, '#c6d5da');
           if (this.elapsed < .75) {
             s.box(281, 117, 238, 89, '#2a9857', 20);
             s.text('GO!', 400, 161, 72, '#fff8d9');
           }
         }
-        s.box(0, 544, 800, 56, '#171d31', 0);
+        s.box(0, footer, s.w, s.h - footer, '#171d31', 0);
         const step = 776 / Math.max(1, this.players);
         this.racers?.forEach((r, i) => {
           const left = 10 + i * step, px = left + 5;
-          s.text(`P${i + 1} ${r.finished ? 'FINISH!' : 'RACING'}`, left + 8, 555,
+          s.text(`P${i + 1} ${r.finished ? 'FINISH!' : 'RACING'}`, left + 8, footer + 13,
             this.players === 4 ? 16 : 20, this.kartColor(i), 'left');
-          s.box(px, 574, step - 20, 11, '#3c4b66', 5);
-          s.box(px, 574, (step - 20) * clamp(r.d / (r.route.length || 1), 0, 1),
+          s.box(px, footer + 29, step - 20, 11, '#3c4b66', 5);
+          s.box(px, footer + 29, (step - 20) * clamp(r.d / (r.route.length || 1), 0, 1),
             11, this.kartColor(i), 5);
         });
         this.amulets('race');
-        if (this.mode === 'race') s.button('PAUSE', 671, 12, 117, 48,
+        if (this.mode === 'race') s.button('PAUSE', 671, 3, 117, 44,
           () => s.pause(), false, 21);
       }
       if (this.mode === 'result') {
@@ -1960,16 +1966,16 @@ class HubScene extends Phaser.Scene{
    this.zones=[];this.veil();this.text('PAUSED',400,this.h/2-55,45,'#ffd15c');
    this.button('RESUME',250,this.h/2,300,64,()=>this.pause(),true,28);
   }
-  // The Home button lives IN the 73px HUD, never over the track or letterbox.
-  const home=this.button('',9,11,62,49,()=>{});
+  const homeY=['draw','countdown','race'].includes(this.gameplay?.mode)?2:11;
+  const home=this.button('',9,homeY,62,45,()=>{});
   home.tag='home';home.up=q=>{
-   if(q.x>=9&&q.x<=71&&q.y>=11&&q.y<=60){
+   if(q.x>=9&&q.x<=71&&q.y>=home.y&&q.y<=home.y+home.h){
     this.gameplay?.persist?.();location.href='../index.html';
    }
   };
   const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');
-  if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',13,12,51,47))
-   this.text('⌂',40,36,35);
+  if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',17,homeY+1,46,43))
+   this.text('⌂',40,homeY+22,35);
   this.tex.refresh();
  }
 
@@ -2011,7 +2017,6 @@ class HubScene extends Phaser.Scene{
  this.text(title,400,y,36,'#ffe18b');
  lines.forEach((l,i)=>this.text(l,400,y+56+i*32,18));
  buttons.forEach((b,i)=>this.button(b[0],235,y+85+lines.length*32+i*66,330,54,b[1],i===0,20));}
- field(){return{x:30,y:79,w:740,h:462};}
 }
 globalThis.GameHubScene=HubScene;
 new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3d',scale:{mode:Phaser.Scale.FIT,width:800,height:600,autoCenter:Phaser.Scale.CENTER_BOTH},input:{activePointers:5},scene:HubScene});
