@@ -1,0 +1,112 @@
+[
+  {
+    "name": "home_interior",
+    "description": "Empty burrow interior background",
+    "png_master": "PNG_Masters/home_interior.png",
+    "webp": "assets/hungryHedgie/home/home_interior.webp",
+    "webp_resolution": [
+      1120,
+      840
+    ],
+    "webp_kb": 108
+  },
+  {
+    "name": "bed_single",
+    "description": "Cosy single bed",
+    "png_master": "PNG_Masters/bed_single.png",
+    "webp": "assets/hungryHedgie/home/bed_single.webp",
+    "webp_resolution": [
+      900,
+      836
+    ],
+    "webp_kb": 143
+  },
+  {
+    "name": "bed_double",
+    "description": "Adult double bed",
+    "png_master": "PNG_Masters/bed_double.png",
+    "webp": "assets/hungryHedgie/home/bed_double.webp",
+    "webp_resolution": [
+      900,
+      749
+    ],
+    "webp_kb": 139
+  },
+  {
+    "name": "bed_baby",
+    "description": "Two small children\u2019s beds",
+    "png_master": "PNG_Masters/bed_baby.png",
+    "webp": "assets/hungryHedgie/home/bed_baby.webp",
+    "webp_resolution": [
+      900,
+      653
+    ],
+    "webp_kb": 138
+  },
+  {
+    "name": "dining_table",
+    "description": "Family dining table and stools",
+    "png_master": "PNG_Masters/dining_table.png",
+    "webp": "assets/hungryHedgie/home/dining_table.webp",
+    "webp_resolution": [
+      900,
+      526
+    ],
+    "webp_kb": 126
+  },
+  {
+    "name": "pantry",
+    "description": "Pantry cupboard",
+    "png_master": "PNG_Masters/pantry.png",
+    "webp": "assets/hungryHedgie/home/pantry.webp",
+    "webp_resolution": [
+      726,
+      900
+    ],
+    "webp_kb": 162
+  },
+  {
+    "name": "basket_upgrade",
+    "description": "Larger berry basket",
+    "png_master": "PNG_Masters/basket_upgrade.png",
+    "webp": "assets/hungryHedgie/home/basket_upgrade.webp",
+    "webp_resolution": [
+      900,
+      711
+    ],
+    "webp_kb": 151
+  },
+  {
+    "name": "hanging_lantern",
+    "description": "Lantern and shelf decoration",
+    "png_master": "PNG_Masters/hanging_lantern.png",
+    "webp": "assets/hungryHedgie/home/hanging_lantern.webp",
+    "webp_resolution": [
+      900,
+      608
+    ],
+    "webp_kb": 128
+  },
+  {
+    "name": "picnic_blanket",
+    "description": "Family picnic blanket and decorations",
+    "png_master": "PNG_Masters/picnic_blanket.png",
+    "webp": "assets/hungryHedgie/home/picnic_blanket.webp",
+    "webp_resolution": [
+      900,
+      702
+    ],
+    "webp_kb": 216
+  },
+  {
+    "name": "bunting",
+    "description": "Decorative bunting",
+    "png_master": "PNG_Masters/bunting.png",
+    "webp": "assets/hungryHedgie/home/bunting.webp",
+    "webp_resolution": [
+      900,
+      446
+    ],
+    "webp_kb": 172
+  }
+]

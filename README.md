@@ -1,9 +1,12 @@
-# Hungry Hedgie v3.6 — Completed furniture only
+# Hungry Hedgie — Storybook Art Pack
 
-Replace `games/hungryHedgie.html` in GameHub-JS. The eight WebP files under `assets/hungryHedgie/home/` are included for clean installs; if already present, they are unchanged.
+10 original illustrations: 1 empty burrow background and 9 transparent furniture/decor sprites.
 
-**Progression:** each chapter still has two berry trips. First delivery shows **HALFWAY THERE** and one filled trip marker, but adds no frame or incomplete furniture. Second delivery unlocks the complete furniture item; tap or drag to place it, then celebrate. Arrange mode still has Done, X and Escape exit controls.
+- `assets/hungryHedgie/home/`: optimized WebP files, with the existing names used by Hungry Hedgie v3.6 for eight of the items. Two additional assets are `basket_upgrade.webp` and `bunting.webp`.
+- `PNG_Masters/`: full-resolution original generated PNG files.
+- `ASSET_PREVIEW.jpg`: visual index.
+- `asset_manifest.json`: filenames and resolutions.
 
-**Save compatibility:** existing v4 (v3.4/v3.5) saved half-frames are no longer displayed. Previously delivered berries, fully placed furniture, room positions, later chapters, and choices remain. New game saves continue to use the existing storage key to avoid orphaning progress.
+To install, copy `assets/` into the root of your GameHub-JS repo, merging with the existing assets directory. This pack contains **artwork only**, not a new HTML file. The earlier Hungry Hedgie v3.6 HTML already references the eight original home filenames, but may need adjustments to displayed sprite sizes and positions to make the new illustrations fit well. The two extra sprites are not used until explicitly wired into the game. Keep your original sprites in `assets/hungryHedgie/` unchanged.
 
-No game-wide layout or asset changes.
+PNG masters may be used for editing. Keep transparency when modifying the furniture art. WebP versions are optimized for loading in landscape browsers.
