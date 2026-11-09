@@ -16,7 +16,7 @@
 </script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#121d2d">
-<title>Tank Duel · GameHub</title>
+<title>Tank Duel · GameHub (Python fidelity)</title>
 <style>
   * { box-sizing: border-box; }
   html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#121d2d; }
@@ -45,6 +45,7 @@
 'use strict';
 (() => {
 const W=1280, H=800, FIELD_TOP=142, FIELD_BOTTOM=650, TAU=Math.PI*2;
+const BUILD_ID='tankduel-python-art-v20261109';
 const BG='#121d2d', PANEL='#1d2c3e', WHITE='#eaf1f4', MUTED='#9fb5c1', GOLD='#ffcc63', GREEN='#71d28c', RED='#f5645c';
 const COLORS=['#4fc3eb','#f17061','#94ce71','#bb92ea','#f4bf4b','#dfe0dc'];
 const BODIES={scout:[0,100,150,1],heavy:[1200,155,90,1],artillery:[900,110,110,1.4]};
@@ -58,7 +59,7 @@ function roundRect(c,x,y,w,h,r=12){c.beginPath();c.roundRect(x,y,Math.max(0,w),M
 function rgba(hex,alpha){const x=hex.replace('#','');return `rgba(${parseInt(x.slice(0,2),16)},${parseInt(x.slice(2,4),16)},${parseInt(x.slice(4,6),16)},${alpha})`;}
 function player(i){return {i,color:i,body:'scout',weapon:'cannon',armor:0,engine:0,owned:new Set(['scout','cannon']),money:1000,wins:0,x:i?1070:210,angle:55,power:10,hp:100,fuel:150,wheel:0};}
 
-// Small locally-generated trees are used if either shared WasteTrain tree image is unavailable.
+// Original PNG broadleaf/pine trees are preferred; procedural trees are emergency fallbacks only.
 function proceduralTree(pine=false){
   const out=canvas(120,160),c=out.getContext('2d');
   c.fillStyle='#5c3b27';c.beginPath();c.moveTo(49,155);c.lineTo(54,72);c.lineTo(65,72);c.lineTo(72,155);c.fill();
@@ -77,25 +78,62 @@ function cropAlpha(img){
   const crop=canvas(x2-a+1,y2-b+1);crop.getContext('2d').drawImage(cv,a,b,crop.width,crop.height,0,0,crop.width,crop.height);return crop;
 }
 class Scenery {
-  constructor(game){this.g=game;this.treeSources=[proceduralTree(),proceduralTree(true)];this.trees=[];this.particles=[];this.background=null;this.loadTrees();}
+  constructor(game){
+    this.g=game;this.treeSources=[proceduralTree(),proceduralTree(true)];
+    this.treeStatus='loading';this.treeDetail='';this.trees=[];this.particles=[];this.background=null;
+    this.loadTrees();
+  }
   async loadTrees(){
-    const paths=['../assets/wasteTrain/scenery/tree_broadleaf.png','../assets/wasteTrain/scenery/tree_pine.png'];
-    const loaded=await Promise.allSettled(paths.map(loadImage));
-    const found=loaded.filter(r=>r.status==='fulfilled').map(r=>cropAlpha(r.value));
-    if(!found.length){try{found.push(cropAlpha(await loadImage('../assets/wasteGOL/tree.png')));}catch{}}
-    if(found.length){this.treeSources=found;this.newRound();}
+    // Exactly the same broadleaf/pine PNGs used by tankDuel.py, when deployed.
+    // Try repository naming variations but never mix procedural and PNG trees.
+    const families=[
+      ['../assets/wasteTrain/scenery/tree_broadleaf.png','../assets/wasteTrain/scenery/tree_pine.png'],
+      ['../assets/WasteTrain/scenery/tree_broadleaf.png','../assets/WasteTrain/scenery/tree_pine.png'],
+      ['../assets/wasteTrain/tree_broadleaf.png','../assets/wasteTrain/tree_pine.png']
+    ];
+    let found=[];
+    for(const paths of families){
+      const loaded=await Promise.allSettled(paths.map(loadImage));
+      found=loaded.filter(r=>r.status==='fulfilled').map(r=>cropAlpha(r.value));
+      if(found.length){this.treeDetail=paths.join(' • ');break;}
+    }
+    if(!found.length){
+      try{found=[cropAlpha(await loadImage('../assets/wasteGOL/tree.png'))];
+        this.treeDetail='../assets/wasteGOL/tree.png';}catch{}
+    }
+    if(found.length){
+      this.treeSources=found;this.treeStatus='png';
+      // Don't magically resurrect felled trees after a late asset load.
+      if(!this.trees.length||this.g.state==='menu')this.newRound();
+      else for(const t of this.trees){if(!t.alive)continue;
+        t.image=found[Math.floor(rnd(0,found.length))];t.w=t.h*t.image.width/t.image.height;}
+    }else{
+      this.treeStatus='fallback';this.treeDetail='No shared tree PNG found under assets/wasteTrain or assets/wasteGOL';
+      console.warn('[Tank Duel] '+this.treeDetail);
+    }
   }
   newRound(){
     this.makeBackground();this.trees=[];this.particles=[];
     for(const side of [0,1]){
-      const layers=[false,false,false,true,true];layers.sort(()=>rnd(-1,1));
+      // The Python version has exactly five trees per side, three behind the
+      // tank layer and two in front, independently shuffled for each side.
+      const layers=[false,false,false,true,true];
+      for(let j=layers.length-1;j>0;j--){const k=Math.floor(rnd(0,j+1));[layers[j],layers[k]]=[layers[k],layers[j]];}
       for(let i=0;i<5;i++){
-        const x=side?W-(70+i*101+rnd(-15,15)):70+i*101+rnd(-15,15);
-        const src=this.treeSources[Math.floor(Math.random()*this.treeSources.length)];
+        const x=side?W-(70+i*100+rnd(-15,15)):70+i*100+rnd(-15,15);
+        const src=this.treeSources[Math.floor(rnd(0,this.treeSources.length))];
         const h=[94,110,126,142][Math.floor(rnd(0,4))];
         const w=h*src.width/src.height;
         this.trees.push({x,y:this.g.ground(x),image:src,w,h,front:layers[i],flip:Math.random()>.5,alive:true,fall:0,dir:1});
       }
+    }
+  }
+  drawMenuTrees(c){
+    // Showcase the actual loaded tree PNGs as scenery framing the opening duel.
+    const places=[[95,396,112,0],[186,404,80,1],[1092,397,88,1],[1200,403,122,0]];
+    for(const [x,y,h,i] of places){
+      const im=this.treeSources[i%this.treeSources.length],w=h*im.width/im.height;
+      c.save();c.globalAlpha=.85;c.drawImage(im,x-w/2,y-h,w,h);c.restore();
     }
   }
   makeBackground(){
@@ -173,22 +211,44 @@ class TankDuel {
     this.terrainDirty=true;this.terrainImage=null;this.shots=[];this.fx=[];this.debris=[];this.smoke=[];this.floaters=[];
     this.charge=null;this.aimPointer=null;this.aimPoint=null;this.tutorial=true;
     this.holds=new Map();this.keys=new Set();this.paused=false;this.homeConfirm=false;this.shake=0;
-    this.rig=null;this.art={};this.tint={};this.scenery=new Scenery(this);this.loadArt();
+    this.rig=null;this.art={};this.tint={};this.assetStatus='loading';this.assetDetail='';
+    this.scenery=new Scenery(this);this.loadArt();
   }
   async loadArt(){
-    for(const root of ['../assets/tank_game_assets/','../tank_game_assets/']){
+    // The Python version renders a *rigged collection of PNG parts*. A JSON file
+    // alone is insufficient: only accept a root when its actual scout/weapon art
+    // is present. The previous port silently selected empty PNG directories.
+    const roots=['../assets/tank_game_assets/','../tank_game_assets/',
+      '../assets/WasteGame/tank_game_assets/'];
+    const errors=[];
+    for(const root of roots){
       try{
-        const res=await fetch(root+'rig/tank_rig.json');if(!res.ok)continue;
+        const res=await fetch(root+'rig/tank_rig.json');
+        if(!res.ok){errors.push(root+'rig/tank_rig.json: HTTP '+res.status);continue;}
         const rig=await res.json(),paths=new Set();
-        for(const r of Object.values(rig.tanks||{}))for(const n of r.nodes||[])if(n.sprite)paths.add(n.sprite.replace('{color}','green'));
-        for(const w of Object.values(rig.weapons||{}))if(w.sprite)paths.add(w.sprite.replace('{color}','green'));
-        for(const p of Object.values(rig.projectiles||{}))if(p.sprite)paths.add(p.sprite.replace('{color}','green'));
+        const spritePath=(s)=>s?.replaceAll('\\','/').replace('{color}','green');
+        for(const r of Object.values(rig.tanks||{}))for(const n of r.nodes||[])if(n.sprite)paths.add(spritePath(n.sprite));
+        for(const w of Object.values(rig.weapons||{}))if(w.sprite)paths.add(spritePath(w.sprite));
+        for(const p of Object.values(rig.projectiles||{}))if(p.sprite)paths.add(spritePath(p.sprite));
         for(let i=0;i<8;i++)paths.add(`png/fx/explosion_${i}.png`);
-        const entries=await Promise.all([...paths].map(async path=>{try{return [path,await loadImage(root+path)];}catch{return [path,null];}}));
-        this.rig=rig;this.art=Object.fromEntries(entries.filter(p=>p[1]));return;
-      }catch{}
+        const entries=await Promise.all([...paths].map(async path=>{
+          try{return [path,await loadImage(root+path)];}catch{return [path,null];}
+        }));
+        const art=Object.fromEntries(entries.filter(p=>p[1]));
+        const essential=[...(rig.tanks?.scout?.nodes||[]).filter(n=>n.sprite).map(n=>spritePath(n.sprite)),
+          spritePath(rig.weapons?.cannon?.sprite)].filter(Boolean);
+        if(!essential.length||!essential.every(path=>art[path])){
+          errors.push(root+': missing required scout/cannon PNG sprite(s)');continue;
+        }
+        this.rig=rig;this.art=art;this.tint={};this.assetRoot=root;
+        this.assetStatus='ready';this.assetDetail=`${Object.keys(art).length}/${paths.size} PNG components loaded`;
+        if(Object.keys(art).length<paths.size)console.warn('[Tank Duel] Some optional sprite files are missing:',this.assetDetail);
+        return;
+      }catch(e){errors.push(root+': '+e.message);}
     }
-    // The game stays playable with procedurally drawn tanks if the optional tank rig is absent.
+    this.assetStatus='missing';this.assetDetail=errors.join(' | ');
+    console.warn('[Tank Duel] Original tank PNG assets were not found. '+this.assetDetail);
+    // Keep controls playable as a last-resort fallback, but visibly warn on menu.
   }
   maxHp(p){return BODIES[p.body][1]+p.armor*25;}
   maxFuel(p){return BODIES[p.body][2]+p.engine*35;}
@@ -398,16 +458,46 @@ class TankDuel {
   bar(x,y,w,h,part,total,color){this.box(x,y,w,h,'#394853',6);if(part>0)this.box(x,y,w*clamp(part/Math.max(total,1),0,1),h,color,6);}
   tintedImage(path,color){
     const src=this.art[path];if(!src)return null;const key=path+'#'+color;
-    if(!this.tint[key]){const cv=canvas(src.width,src.height),cx=cv.getContext('2d');cx.drawImage(src,0,0);cx.globalCompositeOperation='multiply';cx.fillStyle=color;cx.fillRect(0,0,cv.width,cv.height);cx.globalCompositeOperation='destination-in';cx.drawImage(src,0,0);this.tint[key]=cv;}
+    if(!this.tint[key]){
+      const cv=canvas(src.width,src.height),cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(src,0,0);
+      // Match Python's Art.sprite: recolor by luminance while retaining
+      // the source PNG's highlights, shadows, lines and transparency.
+      try{
+        const pixels=cx.getImageData(0,0,cv.width,cv.height),d=pixels.data;
+        const rgb=[1,3,5].map(i=>parseInt(color.slice(i,i+2),16));
+        for(let i=0;i<d.length;i+=4){if(!d[i+3])continue;
+          const luminance=Math.min(255,Math.floor((.2126*d[i]+.7152*d[i+1]+.0722*d[i+2])*1.5));
+          for(let channel=0;channel<3;channel++)d[i+channel]=Math.floor(luminance*rgb[channel]/255);
+        }
+        cx.putImageData(pixels,0,0);
+      }catch(e){console.warn('[Tank Duel] Could not recolor PNG part:',path,e);}
+      this.tint[key]=cv;
+    }
     return this.tint[key];
   }
   tank(p,x,y,scale=.56){
     const c=this.c,rig=this.rig?.tanks?.[p.body],face=p.i?-1:1;
     if(!rig||!rig.nodes||!this.art[rig.nodes[0]?.sprite?.replace('{color}','green')]){
+      // A proper layered drawing if the PNG directory is missing. This is
+      // explicitly a fallback, never chosen while the original rig is available.
       c.save();c.translate(x,y);c.scale(face*scale,scale);
-      this.box(-48,-38,96,30,'#293c46',10);this.box(-38,-61,76,31,COLORS[p.color],11);
-      this.circle(-27,-11,12,'#1f292f');this.circle(27,-11,12,'#1f292f');
-      const a=p.angle*Math.PI/180;c.strokeStyle='#35404b';c.lineWidth=12;c.beginPath();c.moveTo(0,-53);c.lineTo(Math.cos(a)*75,-53-Math.sin(a)*75);c.stroke();c.restore();return;
+      c.fillStyle='rgba(8,18,21,.32)';c.beginPath();c.ellipse(0,-2,87,12,0,0,TAU);c.fill();
+      c.fillStyle='#242c35';roundRect(c,-73,-43,146,41,20);c.fill();
+      c.fillStyle='#697a73';roundRect(c,-68,-39,136,32,16);c.fill();
+      for(const wx of [-49,-16,17,50]){
+        c.fillStyle='#1f2a33';c.beginPath();c.arc(wx,-23,16,0,TAU);c.fill();
+        c.fillStyle='#b9bfaa';c.beginPath();c.arc(wx,-23,8,0,TAU);c.fill();
+        c.fillStyle='#4b5861';c.beginPath();c.arc(wx,-23,3,0,TAU);c.fill();
+      }
+      c.fillStyle=COLORS[p.color];c.beginPath();c.moveTo(-64,-47);c.lineTo(-43,-77);c.lineTo(32,-77);c.lineTo(64,-47);c.closePath();c.fill();
+      c.strokeStyle='#283841';c.lineWidth=4;c.stroke();
+      c.fillStyle='#40515a';roundRect(c,-26,-91,75,24,9);c.fill();
+      c.fillStyle=COLORS[p.color];roundRect(c,-15,-98,61,25,9);c.fill();
+      c.save();c.translate(24,-86);c.rotate(-p.angle*Math.PI/180);
+      c.fillStyle='#34434e';roundRect(c,0,-9,101,18,6);c.fill();
+      c.fillStyle='#b7b9ad';c.fillRect(83,-8,11,16);c.restore();
+      for(const wx of [-45,0,44]){c.fillStyle='#e0e5cb';c.beginPath();c.arc(wx,-57,3,0,TAU);c.fill();}
+      c.restore();return;
     }
     const positions={};for(const n of rig.nodes){const parent=positions[n.parent]||[0,0];positions[n.id]=[parent[0]+n.position[0],parent[1]+n.position[1]];}
     c.save();c.translate(x,y-(rig.groundContacts?.[0]?.[1]||0)*scale);c.scale(face*scale,scale);
@@ -544,22 +634,47 @@ class TankDuel {
     }
   }
   drawMenu(){
+    // Faithful to the Python opening: two large opposing rigged tanks, their
+    // player colors, a curved projectile volley and the two workshop choices.
+    // Do not put Home on top of the title as the previous JS port did.
     const c=this.c;
     c.fillStyle=BG;c.fillRect(0,0,W,H);
-    c.fillStyle='#244054';c.beginPath();c.ellipse(640,770,790,255,0,0,TAU);c.fill();
-    this.text('TANK DUEL',640,110,74,WHITE);
-    const x0=this.players[0].x,x1=this.players[1].x;
-    this.players[0].x=330;this.players[1].x=950;
-    this.tank(this.players[0],330,342,1.3);this.tank(this.players[1],950,342,1.3);
-    this.players[0].x=x0;this.players[1].x=x1;
-    for(let k=0;k<7;k++)this.circle(470+k*57,208-Math.sin(k/6*Math.PI)*70,5,k%2?GOLD:WHITE);
-    this.button('',180,430,420,248,()=>this.newCampaign('free'),{primary:true});
-    this.icon('engine',298,540,GOLD,35);this.icon('armor',392,540,GOLD,35);this.icon('play',500,540,GREEN,32);
-    this.text('BUILD & PLAY',390,616,31,WHITE);this.text('Free workshop',390,654,23,'#c7d7d7');
-    this.button('',680,430,420,248,()=>this.newCampaign('money'));
-    this.icon('coin',790,540,GOLD,36);this.icon('plus',880,540,WHITE,24);this.icon('trophy',975,540,GOLD,35);
-    this.text('COIN CAMPAIGN',890,616,30,WHITE);this.text('Earn upgrades',890,654,22,'#c7d7d7');
-    this.text('Two players · one screen · destructible terrain',640,747,22,MUTED);
+    const aura=c.createRadialGradient(640,304,40,640,304,610);
+    aura.addColorStop(0,'#263e50');aura.addColorStop(1,BG);
+    c.fillStyle=aura;c.fillRect(0,0,W,470);
+    c.fillStyle='#244054';c.beginPath();c.ellipse(640,777,800,250,0,0,TAU);c.fill();
+    this.text('TANK DUEL',640,89,76,WHITE);
+    this.text('TWO PLAYERS  ·  ONE BATTLEFIELD',640,145,19,MUTED);
+    // Low painted earth banks anchor the tank PNGs instead of leaving them
+    // floating in the empty dark background.
+    for(const [x,color] of [[330,COLORS[0]],[950,COLORS[1]]]){
+      c.fillStyle='#354d44';c.beginPath();c.ellipse(x,387,195,25,0,0,TAU);c.fill();
+      c.fillStyle='#70964d';c.beginPath();c.ellipse(x,377,195,12,0,0,TAU);c.fill();
+      c.fillStyle=rgba(color,.13);c.beginPath();c.ellipse(x,363,173,16,0,0,TAU);c.fill();
+    }
+    this.scenery.drawMenuTrees(c);
+    const old=this.players.map(p=>({x:p.x,angle:p.angle}));
+    for(const [i,x] of [[0,330],[1,950]]){
+      const p=this.players[i];p.x=x;p.angle=22;
+      this.tank(p,x,378,1.25);
+      p.x=old[i].x;p.angle=old[i].angle;
+      this.badge(p,x-105,405,24);
+      this.text('PLAYER '+(i+1),x+5,409,22,WHITE);
+    }
+    for(let k=0;k<11;k++){
+      const t=k/10,x=470+t*340,y=253-67*Math.sin(t*Math.PI);
+      this.circle(x,y,k%2?5:4,k%2?GOLD:WHITE);
+    }
+    this.button('',180,443,420,236,()=>this.newCampaign('free'),{primary:true});
+    this.icon('engine',298,550,GOLD,37);this.icon('armor',392,550,GOLD,34);this.icon('play',500,550,GREEN,33);
+    this.text('BUILD & PLAY',390,620,31,WHITE);this.text('Free workshop',390,658,23,'#c7d7d7');
+    this.button('',680,443,420,236,()=>this.newCampaign('money'));
+    this.icon('coin',790,550,GOLD,36);this.icon('plus',880,550,WHITE,24);this.icon('trophy',975,550,GOLD,35);
+    this.text('COIN CAMPAIGN',890,620,30,WHITE);this.text('Earn upgrades',890,658,22,'#c7d7d7');
+    if(this.assetStatus==='loading')this.text('Loading original tank PNG artwork…',640,715,17,MUTED);
+    else if(this.assetStatus==='missing')this.text('Tank PNGs not found — copy assets/tank_game_assets from the Python project',640,713,16,GOLD);
+    if(this.scenery.treeStatus==='fallback')this.text('Original tree PNGs not found — check assets/wasteTrain/scenery',640,737,16,GOLD);
+    this.text('Two players · one screen · destructible terrain',640,776,19,MUTED);
   }
   drawBuild(){
     const p=this.players[this.buildPlayer];
@@ -669,7 +784,9 @@ class TankDuel {
     }
     // Home is always in the rendered 1280x800 stage, never a page-level overlay.
     if(this.state==='menu'||this.state==='build'){
-      this.button('',770,22,96,86,()=>this.goHome(),{icon:'home'});
+      // Python original: home in the upper-left on menu. On the workshop,
+      // the existing MENU control at the bottom remains available too.
+      this.button('',24,24,96,86,()=>this.goHome(),{icon:'home'});
     }
     if(this.paused)this.drawPause();
     if(this.homeConfirm)this.drawLeave();
@@ -679,6 +796,7 @@ class TankDuel {
 if(typeof Phaser==='undefined'){
   document.getElementById('error').hidden=false;
 }else{
+  console.info('[GameHub] '+BUILD_ID);
   class TankScene extends Phaser.Scene {
     constructor(){super('tank-duel');}
     create(){
