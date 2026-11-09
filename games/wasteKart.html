@@ -1,5 +1,16 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><title>Waste Kart · GameHub</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script id="gamehub-orientation-device">
+  // Do not treat a narrow desktop browser window as a phone in portrait.
+  // iPadOS can identify itself as macOS, hence the MacIntel touch check.
+  (() => {
+    const ua = navigator.userAgent || '';
+    const ipadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    if (/Android|iPad|iPhone|iPod|Silk|Kindle|PlayBook|Mobile|Tablet/i.test(ua) || ipadOS) {
+      document.documentElement.classList.add('gamehub-handheld');
+    }
+  })();
+</script><meta name="apple-mobile-web-app-capable" content="yes"><title>Waste Kart · GameHub</title>
 <style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#152e3d}#game{position:fixed;inset:0}canvas{display:block;touch-action:none}#error{position:fixed;inset:0;z-index:3;background:#152e3d;font:20px system-ui;color:white;padding:24px}a{color:#d1eda9}</style><style id="gamehub-landscape">
 /* Like WastePizza: one proportional landscape game frame; Phaser FITs its own canvas. */
 html,body{margin:0;width:100%;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;overscroll-behavior:none}
@@ -32,7 +43,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;-webkit-text-size-adju
  background:#0a1924;color:white;place-content:center;justify-items:center;text-align:center;gap:16px;padding:24px;
  font:600 20px/1.4 system-ui,sans-serif}
 #orientation-warning a{color:#ffe3a4}
-@media(orientation:portrait){#orientation-warning{display:grid}}
+@media (orientation: portrait) { html.gamehub-handheld #orientation-warning { display: grid; } }
 </style>
 </head><body>
 <div id="viewport"><div id="playfield">

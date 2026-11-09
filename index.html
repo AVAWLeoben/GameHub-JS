@@ -3,6 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script id="gamehub-orientation-device">
+  // Do not treat a narrow desktop browser window as a phone in portrait.
+  // iPadOS can identify itself as macOS, hence the MacIntel touch check.
+  (() => {
+    const ua = navigator.userAgent || '';
+    const ipadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    if (/Android|iPad|iPhone|iPod|Silk|Kindle|PlayBook|Mobile|Tablet/i.test(ua) || ipadOS) {
+      document.documentElement.classList.add('gamehub-handheld');
+    }
+  })();
+</script>
   <meta name="theme-color" content="#0a0a1e">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Game Hub</title>
@@ -27,7 +38,7 @@
       text-shadow:0 2px 5px #000;pointer-events:none}
     #rotate-menu{display:none;position:fixed;z-index:50;inset:0;background:#0a1924;
       color:#fff;place-content:center;text-align:center;padding:20px;font:600 23px system-ui}
-    @media (orientation:portrait){#rotate-menu{display:grid}}
+    @media (orientation: portrait) { html.gamehub-handheld #rotate-menu { display: grid; } }
   </style>
 <style id="gamehub-menu-landscape">
 #menu-viewport{position:fixed;inset:0;display:grid;place-items:center;container-type:size;

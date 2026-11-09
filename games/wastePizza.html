@@ -3,6 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script id="gamehub-orientation-device">
+  // Do not treat a narrow desktop browser window as a phone in portrait.
+  // iPadOS can identify itself as macOS, hence the MacIntel touch check.
+  (() => {
+    const ua = navigator.userAgent || '';
+    const ipadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    if (/Android|iPad|iPhone|iPod|Silk|Kindle|PlayBook|Mobile|Tablet/i.test(ua) || ipadOS) {
+      document.documentElement.classList.add('gamehub-handheld');
+    }
+  })();
+</script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#7e5538">
   <title>Waste Pizza · GameHub</title>
@@ -19,7 +30,7 @@
     a {color: inherit; min-height: 44px; display: inline-grid; place-items: center;}
     #rotate {display: none; z-index: 3;}
     #rotate p {margin: 0; font-size: 20px;}
-    @media (orientation: portrait) {#rotate {display: grid;}}
+    @media (orientation: portrait) { html.gamehub-handheld #rotate { display: grid; } }
   </style>
 </head>
 <body>
