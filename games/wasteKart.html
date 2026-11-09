@@ -45,7 +45,8 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;-webkit-text-size-adju
 <script>
 // Repository assets verified against AVAWLeoben/GameHub revision 7659df16fe100086c261bdf3a6c981b22954ce79.
 // Install this file at games/wasteKart.html alongside the existing ../assets/WasteKart directory.
-const KCOL = ["#ef6678", "#6fb5ff", "#92d99a", "#ffd177"];
+const KCOL = ["#f15164", "#4b9ded", "#54c87a", "#ffbf43",
+  "#af80ee", "#fc8f53", "#54dad5", "#f680bb"];
 const point = (a) => (Array.isArray(a) ? { x: a[0], y: a[1] } : a);
 const mix = (a, b, t) => ({
   x: a.x + (b.x - a.x) * t,
@@ -156,6 +157,9 @@ class Kart {
     this.cupRound = 0;
     this.cupScores = [0, 0, 0, 0];
     this.karts = [0, 1, 2, 3];
+    this.kartPlayer = 0;
+    this.trackThumbJobs = new Set();
+    this.trackThumbFailed = new Set();
     this.root = "../assets/WasteKart/";
     this.loadCatalog();
   }
@@ -185,6 +189,8 @@ class Kart {
         ),
       );
       this.loadAmulets();
+      // Optional shared star artwork; the item remains usable if unavailable.
+      this.assets.image('../assets/star.png').catch(() => {});
       this.mode = "menu";
     } catch (e) {
       this.error = e.message;
@@ -217,7 +223,7 @@ class Kart {
       this.amuletRoot = null;
     }
   }
-  async loadTrack() {
+  async loadTrack(skipKartSelection = false) {
     this.mode = "loading";
     this.error = "";
     try {
@@ -262,7 +268,8 @@ class Kart {
       this.drawLap = 0;
       this.routes = [];
       this.rawLaps = [];
-      this.mode = "karts";
+      this.kartPlayer = 0;
+      this.mode = skipKartSelection ? "ready" : "karts";
     } catch (e) {
       this.error = e.message;
       this.mode = "error";
@@ -515,11 +522,45 @@ class Kart {
     return this.mask("fall_zone", p) && !this.bridge(p);
   }
   field() {
-    const available = this.s.h - 140,
-      w = Math.min(976, available * 1.6),
-      h = w / 1.6;
-    return { x: (1000 - w) / 2, y: 78 + (available - h) / 2, w, h };
+    // wasteKart.py TRACK_RECT: 30,79,740,462 (world space is 960x600).
+    return {x: 30, y: 79, w: 740, h: 462};
   }
+
+  kartColor(player) {
+    return KCOL[this.karts[player] % KCOL.length];
+  }
+
+  thumb(index) {
+    const entry = this.catalog?.tracks?.[index];
+    if (!entry) return null;
+    const url = this.root + entry.image;
+    if (!this.assets.images[url] && !this.trackThumbJobs.has(url) &&
+        !this.trackThumbFailed.has(url)) {
+      this.trackThumbJobs.add(url);
+      this.assets.image(url).catch(() => this.trackThumbFailed.add(url))
+        .finally(() => this.trackThumbJobs.delete(url));
+    }
+    return this.assets.images[url] || null;
+  }
+
+  pickKart(kartId) {
+    if (!this.kartImages[kartId] || this.karts.slice(0, this.kartPlayer).includes(kartId)) return;
+    this.karts[this.kartPlayer] = kartId;
+  }
+
+  advanceKartSelection() {
+    if (this.kartPlayer + 1 < this.players) {
+      this.kartPlayer++;
+      if (this.karts.slice(0, this.kartPlayer).includes(this.karts[this.kartPlayer])) {
+        this.karts[this.kartPlayer] = Array.from({length: this.kartImages.length}, (_, i) => i)
+          .find(id => !this.karts.slice(0, this.kartPlayer).includes(id)) ?? 0;
+      }
+    } else {
+      this.drawPlayer = 0;
+      this.mode = 'ready';
+    }
+  }
+
   screen(p) {
     const r = this.field();
     return { x: r.x + (p.x * r.w) / 960, y: r.y + (p.y * r.h) / 600 };
@@ -1350,70 +1391,165 @@ class Kart {
       }
     }
   }
-  amulets() {
-    const s = this.s,
-      r = this.field(),
-      positions = [
-        { x: r.x + 44, y: r.y + 44 },
-        { x: r.x + r.w - 44, y: r.y + 44 },
-        { x: r.x + 44, y: r.y + r.h - 44 },
-        { x: r.x + r.w - 44, y: r.y + r.h - 44 },
-      ];
-    for (let i = 0; i < this.players; i++) {
-      const p = positions[i],
-        racer = this.racers?.[i],
-        color = this.karts[i],
-        root = this.amuletRoot,
-        n = this.amuletNames?.[color],
-        socket = racer?.item || racer?.effect;
-      const sprite =
-        root &&
-        this.assets.images[
-          root +
-            `amulets/amulet_${color}_${n}_${socket ? "socket" : "plain"}.png`
-        ];
-      s.zones.push({
-        x: p.x - 36,
-        y: p.y - 36,
-        w: 72,
-        h: 72,
-        fn: () => this.press(i),
-      });
-      if (sprite) s.c.drawImage(sprite, p.x - 42, p.y - 42, 84, 84);
-      else {
-        s.circle(p.x, p.y, 34, KCOL[i]);
-        s.text("P" + (i + 1), p.x, p.y - 7, 21, "#18303f");
+  powerIcon(kind, x, y, size = 34) {
+    // Recreates wasteKart.py's preschool-friendly text-free item pictograms.
+    const s = this.s, c = s.c, k = size / 34;
+    c.save();
+    c.translate(x, y);
+    const poly = (coords, color) => {
+      c.beginPath(); c.moveTo(coords[0][0] * k, coords[0][1] * k);
+      for (const [px, py] of coords.slice(1)) c.lineTo(px * k, py * k);
+      c.closePath(); c.fillStyle = color; c.fill();
+    };
+    const ring = (bg, stroke) => {
+      c.beginPath(); c.arc(0, 0, size * .49, 0, TAU);
+      c.fillStyle = bg; c.fill(); c.strokeStyle = stroke; c.lineWidth = 2; c.stroke();
+    };
+    if (kind === 'turbo') {
+      ring('#5c2b1e', '#ffae38');
+      poly([[-9,11],[-11,0],[-5,-4],[0,-13],[5,-6],[9,-8],[11,2],[7,12]], '#ff7021');
+      poly([[-5,10],[-6,3],[-1,-4],[2,-1],[5,1],[5,10]], '#ffd94b');
+      poly([[-2,10],[-2,5],[1,2],[3,6],[2,10]], '#fff8a5');
+    } else if (kind === 'tailwind') {
+      ring('#164a58', '#56f2e9');
+      c.strokeStyle = '#9efff7'; c.lineWidth = 3; c.lineCap='round';
+      for (const pts of [
+        [[-12,-7],[-5,-7],[3,-7],[10,-11],[13,-8]],
+        [[-13,0],[-4,0],[8,0],[11,-3]],
+        [[-9,7],[-2,7],[5,7],[9,10],[13,8]]]) {
+        c.beginPath(); c.moveTo(pts[0][0]*k,pts[0][1]*k);
+        for (const p of pts.slice(1)) c.lineTo(p[0]*k,p[1]*k);
+        c.stroke();
       }
-      if (racer?.effect) {
-        const halo =
-          this.assets.images[
-            root +
-              `fx/halo_${racer.effect === "star" ? "gold" : racer.effect}.png`
-          ];
-        if (halo) s.c.drawImage(halo, p.x - 42, p.y - 42, 84, 84);
+    } else if (kind === 'star') {
+      ring('#302a5a', '#ffe07b');
+      const star = this.assets.images['../assets/star.png'];
+      if (star) c.drawImage(star,-size*.42,-size*.42,size*.84,size*.84);
+      else {
+        const pts=[];
+        for(let i=0;i<10;i++){
+          const a=-Math.PI/2+i*Math.PI/5, r=size*(i%2===0?.41:.19);
+          pts.push([Math.cos(a)*r/k,Math.sin(a)*r/k]);
+        }
+        poly(pts,'#ffeb65');
+      }
+    } else {
+      ring('#354360','#7c8ea3');
+      c.font='600 30px system-ui'; c.textAlign='center'; c.textBaseline='middle';
+      c.fillStyle='#d6e0e7'; c.fillText('?',0,-1);
+    }
+    c.restore();
+  }
+
+  tapIcon(x, y) {
+    const s=this.s,c=s.c;
+    s.circle(x,y-10,4,'#fff7df');
+    s.box(x-3,y-6,6,19,'#fff7df',3);
+    s.box(x-10,y+5,20,7,'#fff7df',3);
+    c.save();c.strokeStyle='#fff7df';c.lineWidth=2;
+    for (const side of [-1,1]) {
+      c.beginPath();c.arc(x+side*8,y-11,9,-.55, .4);c.stroke();
+    }
+    c.restore();
+  }
+
+  amulets(mode = 'race') {
+    // Matching wasteKart.py PLAYER_AMULETS: never move buttons between screens.
+    const s = this.s, c = s.c;
+    const positions = [[104, 124], [696, 124], [104, 496], [696, 496]];
+    for (let i = 0; i < 4; i++) {
+      const [x, y] = positions[i];
+      const enabled = i < this.players;
+      const colorId = this.karts[i];
+      const color = enabled ? this.kartColor(i) : '#626f82';
+      const racer = (mode === 'race' && enabled) ? this.racers?.[i] : null;
+      const item = racer?.item, active = racer?.effect;
+      const startWindow = this.reflex && (this.mode === 'countdown' ||
+        (this.mode === 'race' && this.elapsed < 1.5));
+      const needsTap = enabled && racer && !s.paused &&
+        ((startWindow && racer.reaction === null) ||
+         (this.mode === 'race' && !startWindow && item));
+      const root = this.amuletRoot, name = this.amuletNames?.[colorId];
+      const spriteKey = enabled ? `amulets/amulet_${colorId}_${name}_${
+        racer && this.mode === 'race' && this.powerups && !startWindow ? 'socket' : 'plain'}.png`
+        : 'amulets/amulet_off_plain.png';
+      const sprite = root ? this.assets.images[root + spriteKey] : null;
+      c.save();
+      if (!enabled) c.globalAlpha = 0.55;
+      if (sprite) c.drawImage(sprite, x - 48, y - 48, 96, 96);
+      else {
+        s.circle(x, y + 4, 44, '#0a1725');
+        s.circle(x, y, 39, color);
+        s.circle(x, y, 32, '#223b55');
+      }
+      if (needsTap || (mode === 'selection' && this.kartPlayer === i)) {
+        c.strokeStyle = '#ffe18b'; c.lineWidth = 3;
+        c.beginPath();
+        c.arc(x, y, 42 + Math.sin(s.time * 5 + i) * 2, 0, TAU);
+        c.stroke();
+      }
+      if (active === 'star') {
+        c.strokeStyle = `hsl(${Math.round(s.time * 220) % 360} 95% 70%)`;
+        c.lineWidth = 4; c.beginPath(); c.arc(x, y, 42, 0, TAU); c.stroke();
+      } else if (active === 'turbo' || active === 'tailwind') {
+        const halo = root && this.assets.images[root +
+          `fx/halo_${active}.png`];
+        if (halo) c.drawImage(halo, x - 48, y - 48, 96, 96);
       }
       if ((this.pressedUntil?.[i] || 0) > s.time) {
-        const im = this.assets.images[root + "fx/pressed_overlay.png"];
-        if (im) s.c.drawImage(im, p.x - 42, p.y - 42, 84, 84);
+        const overlay = root && this.assets.images[root + 'fx/pressed_overlay.png'];
+        if (overlay) c.drawImage(overlay, x - 48, y - 48, 96, 96);
       }
-      const badge =
-        root &&
-        this.assets.images[root + `badges/badge_${color}_${n}_p${i + 1}.png`];
-      if (badge) s.c.drawImage(badge, p.x - 39, p.y - 39, 28, 28);
-      const label = racer?.item
-        ? racer.item.toUpperCase()
-        : racer?.effect
-          ? racer.effect.toUpperCase()
-          : racer?.reaction === -1 && this.mode === "countdown"
-            ? "EARLY"
-            : this.mode === "countdown"
-              ? "WAIT"
-              : this.elapsed < 1.5
-                ? "GO!"
-                : "P" + (i + 1);
-      s.text(label, p.x, p.y, 12, "#fff5d3");
+      if (!enabled) {
+        s.text('–', x, y, 30, '#9ba7ba');
+      } else if (mode === 'selection' || mode === 'preview' ||
+          (this.mode === 'countdown' && !this.reflex)) {
+        const im = this.kartImages[colorId];
+        if (im) c.drawImage(im, x - 20, y - 17, 40, 29);
+        s.text(mode === 'selection' && i === this.kartPlayer ? 'PICK' : 'KART',
+          x, y + 24, 15, '#ffe18b');
+      } else if (startWindow) {
+        const r = racer?.reaction;
+        const label = r === -1 ? 'EARLY' : r !== null && r !== undefined ? 'BOOST' :
+          this.mode === 'countdown' ? 'WAIT' : 'TAP!';
+        if (r === null || r === undefined) this.tapIcon(x, y - 5);
+        else s.text(label, x, y + 2, label === 'BOOST' ? 19 : 21,
+          label === 'EARLY' ? '#ffaaa8' : '#ffe184');
+        s.text(this.mode === 'race' ? 'TAP!' : 'WAIT', x, y + 25, 14,
+          this.mode === 'race' ? '#ffe184' : '#b9cbd4');
+      } else if (this.powerups && racer) {
+        const kind = active || item;
+        this.powerIcon(kind, x, y - 4, 34);
+        s.text(active ? 'GO!' : item ? 'TAP!' : 'EMPTY', x, y + 24, 14,
+          item && !active ? '#ffe184' : '#d8e3e8');
+        if (active && racer.effectLeft > 0) {
+          const duration = active === 'turbo' ? 3.2 : 6;
+          c.beginPath(); c.arc(x, y, 35, -Math.PI / 2,
+            -Math.PI / 2 + TAU * clamp(racer.effectLeft / duration, 0, 1));
+          c.strokeStyle = '#ffe184'; c.lineWidth = 4; c.stroke();
+        }
+      } else {
+        const im = this.kartImages[colorId];
+        if (im) c.drawImage(im, x - 20, y - 17, 40, 29);
+        s.text('KART', x, y + 24, 14);
+      }
+      const badge = root && name && this.assets.images[root +
+        `badges/badge_${colorId}_${name}_p${i + 1}.png`];
+      if (enabled && badge) c.drawImage(badge, x - 43, y - 43, 30, 30);
+      else if (enabled) {
+        s.circle(x - 27, y - 27, 15, color);
+        s.text(i + 1, x - 27, y - 27, 18, '#172131');
+      }
+      c.restore();
+      // Hit area is a 41 px radius, as in Python, rather than a tiny icon.
+      if (mode === 'race' && enabled && racer && !s.paused &&
+          (startWindow || (this.mode === 'race' && this.powerups))) {
+        s.zones.push({x: x - 41, y: y - 41, w: 82, h: 82, circle: {x, y, r:41},
+          fn: () => this.press(i)});
+      }
     }
   }
+
   drawRacer(racer) {
     const s = this.s,
       q = this.screen(racer.pos),
@@ -1444,19 +1580,19 @@ class Kart {
         `hsla(${(this.elapsed * 200) % 360},90%,75%,.65)`,
       );
     if (!this.kartImages[this.karts[racer.i]])
-      s.box(q.x - 14, q.y - 10, 28, 20, KCOL[racer.i]);
+      s.box(q.x - 14, q.y - 10, 28, 20, this.kartColor(racer.i));
     else
       this.blit(
         this.kartImages[this.karts[racer.i]],
         pos,
-        38 * scale * (1 + jump * 0.35),
-        28 * scale * (1 + jump * 0.35),
+        38 * scale * (1 + jump * 0.35) * 960 / this.field().w,
+        28 * scale * (1 + jump * 0.35) * 600 / this.field().h,
         racer.pos.a +
           (racer.stun > 0 ? this.elapsed * 14 : 0) +
-          (racer.fallTime ? (Math.min(age, 0.9) / 0.9) * Math.PI * 3 : 0),
+          (racer.fallTime ? (Math.min(age, 0.9) / 0.9) * Math.PI * 3 : 0) + Math.PI,
       );
     if (!racer.fallTime)
-      s.text(racer.i + 1, q.x, q.y - 23 * scale, 15, KCOL[racer.i]);
+      s.text(racer.i + 1, q.x, q.y - 23 * scale, 15, this.kartColor(racer.i));
   }
   mapDraw() {
     const s = this.s,
@@ -1484,7 +1620,7 @@ class Kart {
       );
       s.line(
         this.draft.map((p) => this.screen(p)),
-        KCOL[this.drawPlayer],
+        this.kartColor(this.drawPlayer),
         5,
       );
     }
@@ -1492,7 +1628,7 @@ class Kart {
       for (const racer of this.racers)
         s.line(
           racer.route.points.map((p) => this.screen(p)),
-          KCOL[racer.i] + "66",
+          this.kartColor(racer.i) + "66",
           2,
         );
     const start = this.screen(point(this.geom.centerline[0]));
@@ -1535,9 +1671,9 @@ class Kart {
         this.blit(
           this.kartImages[this.oldGhost.kart],
           ghost,
-          38,
-          28,
-          ghost.a,
+          38 * 960 / this.field().w,
+          28 * 600 / this.field().h,
+          ghost.a + Math.PI,
           0.25,
         );
       for (const racer of this.racers)
@@ -1545,303 +1681,245 @@ class Kart {
       this.drawHazards("air", layer);
     }
     c.restore();
-    this.amulets();
   }
   draw() {
     const s = this.s;
-    if (this.mode === "loading") {
-      s.title("WASTE KART");
-      s.text("Loading the selected track…", 500, s.h / 2, 28);
+    if (this.mode === 'loading') {
+      s.title('WASTE KART!', 'Loading the selected track…');
+      s.text('Preparing the track and its hazards', 400, 300, 24);
       return;
     }
-    if (this.mode === "error") {
-      s.card(
-        "Track files could not load",
-        [
-          "Keep assets/WasteKart beside the games folder.",
-          "Use GitHub Pages or a local web server.",
-        ],
-        [
-          [
-            "Try again",
-            () => (this.catalog ? this.loadTrack() : this.loadCatalog()),
-          ],
-        ],
-      );
-      s.text((this.error || "").slice(0, 110), 500, 95, 14, "#ffb6a2");
+    if (this.mode === 'error') {
+      s.card('Track files could not load',
+        ['Check assets/WasteKart and the track manifest.', (this.error || '').slice(0, 82)],
+        [['TRY AGAIN', () => this.catalog ? this.loadTrack() : this.loadCatalog()]]);
       return;
     }
-    if (this.mode === "menu") {
-      s.title("WASTE KART", "Draw your racing line, then watch the race");
-      const rows = [
-        [
-          "Players",
-          this.players,
-          () => {
-            this.players = (this.players % 4) + 1;
-          },
-        ],
-        [
-          "Laps",
-          this.laps,
-          () => {
-            this.laps = this.laps === 1 ? 3 : 1;
-          },
-        ],
-        [
-          "Drawing time",
-          this.drawSeconds ? this.drawSeconds + " seconds" : "Unlimited",
-          () => {
-            const options = [15, 30, 60, 0];
-            this.drawSeconds =
-              options[(options.indexOf(this.drawSeconds) + 1) % 4];
-          },
-        ],
-        [
-          "Race mode",
-          this.cupMode ? "Four-track cup" : "Single race",
-          () => {
-            this.cupMode = !this.cupMode;
-          },
-        ],
-        [
-          "Power-ups",
-          this.powerups ? "On" : "Off",
-          () => {
-            this.powerups = !this.powerups;
-          },
-        ],
-        [
-          "Reflex start",
-          this.reflex ? "On" : "Off",
-          () => {
-            this.reflex = !this.reflex;
-          },
-        ],
-      ];
-      rows.forEach(([name, v, fn], i) => {
-        s.text(name, 140, 118 + i * 62, 22, "#cbdbd9", "left");
-        s.button(String(v), 540, 92 + i * 62, 320, 52, fn);
-      });
-      s.button(
-        "Drafting / bumps: " + (this.interactions ? "On" : "Off"),
-        130,
-        474,
-        350,
-        52,
-        () => {
-          this.interactions = !this.interactions;
-        },
-      );
-      s.button(
-        "Racing lines: " + (this.showLines ? "On" : "Off"),
-        520,
-        474,
-        350,
-        52,
-        () => {
-          this.showLines = !this.showLines;
-        },
-      );
-      s.button(
-        "CHOOSE TRACK",
-        250,
-        Math.max(544, s.h - 88),
-        500,
-        60,
-        () => {
-          this.mode = "tracks";
-        },
-        true,
-      );
+    if (this.mode === 'menu') { this.drawMainMenu(); return; }
+    if (this.mode === 'tracks') { this.drawTrackPicker(); return; }
+    if (this.mode === 'karts') { this.drawKartPicker(); return; }
+    if (this.mode === 'ready') { this.drawReady(); return; }
+
+    if (this.mode === 'draw') {
+      this.mapDraw();
+      this.amulets('preview');
+      s.box(0, 0, 800, 72, '#17223b', 0);
+      s.text(this.entry.name || this.geom.name, 400, 24, 31, '#ffd15c');
+      s.text(`PLAYER ${this.drawPlayer + 1} · LAP ${this.drawLap + 1}/${this.laps} · ${this.drawSeconds ? Math.ceil(this.drawTime) + 's' : 'No limit'}`,
+        400, 59, 18, '#d3dce8');
+      s.box(0, 544, 800, 56, '#17223b', 0);
+      s.button('CLEAR LAP', 25, 550, 170, 42, () => this.beginDraw());
+      s.text(this.warning || 'Draw the route with your finger. Lift to pause.', 410, 571, 16, '#d1dfd9');
+      s.button('FINISH LAP', 625, 550, 150, 42, () => this.sealLap(), true);
       return;
     }
-    if (this.mode === "tracks") {
-      s.title("CHOOSE A TRACK");
-      for (let cup = 0; cup < Math.ceil(this.catalog.tracks.length / 4); cup++)
-        s.button(
-          this.catalog.cups?.[cup] || "Cup " + (cup + 1),
-          40 + cup * 240,
-          100,
-          220,
-          54,
-          () => {
-            this.cupStart = cup * 4;
-            this.index = this.cupStart;
-          },
-          Math.floor(this.index / 4) === cup,
-        );
-      for (let i = 0; i < 4; i++) {
-        const idx = Math.floor(this.index / 4) * 4 + i,
-          e = this.catalog.tracks[idx];
-        if (!e) continue;
-        s.button(
-          e.name || "Track " + (idx + 1),
-          130,
-          185 + i * 74,
-          740,
-          62,
-          () => {
-            this.index = idx;
-          },
-          idx === this.index,
-        );
-      }
-      s.button("BACK", 130, s.h - 90, 230, 60, () => {
-        this.mode = "menu";
-      });
-      s.button(
-        "CONTINUE",
-        410,
-        s.h - 90,
-        460,
-        60,
-        () => {
-          if (this.cupMode) this.index = Math.floor(this.index / 4) * 4;
-          this.cupStart = Math.floor(this.index / 4) * 4;
-          this.cupRound = 0;
-          this.cupScores = [0, 0, 0, 0];
-          this.loadTrack();
-        },
-        true,
-      );
-      return;
-    }
-    if (this.mode === "karts") {
-      s.title(
-        this.entry.name || this.geom.name,
-        "Choose a kart for each player",
-      );
-      for (let i = 0; i < this.players; i++) {
-        const y = 125 + i * 85;
-        s.circle(160, y + 30, 24, KCOL[i]);
-        s.text("P" + (i + 1), 160, y + 30, 20, "#163747");
-        s.button("‹", 230, y, 65, 60, () => {
-          this.karts[i] =
-            (this.karts[i] + this.kartImages.length - 1) %
-            Math.max(1, this.kartImages.length);
+    if (['countdown', 'race', 'result'].includes(this.mode)) {
+      this.mapDraw();
+      // Python HUD: top 73 px, bottom 56 px. No controls outside the stage.
+      if (this.mode === 'countdown' || this.mode === 'race') {
+        s.box(0, 0, 800, 73, '#171d31', 0);
+        s.text('WASTE KART', 220, 27, 34, '#ffd15c');
+        if (this.mode === 'countdown') {
+          s.text(this.reflex ? 'TAP YOUR COLOR ON GREEN!' : 'START YOUR ENGINES!',
+            427, 60, 19);
+          this.startLights();
+        } else {
+          s.text(`${this.elapsed.toFixed(1)}s`, 572, 28, 30);
+          s.text(`${this.laps} LAP${this.laps > 1 ? 'S' : ''}`, 400, 57, 19, '#c6d5da');
+          if (this.elapsed < .75) {
+            s.box(281, 117, 238, 89, '#2a9857', 20);
+            s.text('GO!', 400, 161, 72, '#fff8d9');
+          }
+        }
+        s.box(0, 544, 800, 56, '#171d31', 0);
+        const step = 776 / Math.max(1, this.players);
+        this.racers?.forEach((r, i) => {
+          const left = 10 + i * step, px = left + 5;
+          s.text(`P${i + 1} ${r.finished ? 'FINISH!' : 'RACING'}`, left + 8, 555,
+            this.players === 4 ? 16 : 20, this.kartColor(i), 'left');
+          s.box(px, 574, step - 20, 11, '#3c4b66', 5);
+          s.box(px, 574, (step - 20) * clamp(r.d / (r.route.length || 1), 0, 1),
+            11, this.kartColor(i), 5);
         });
-        const im = this.kartImages[this.karts[i]];
-        if (im) s.c.drawImage(im, 370, y - 3, 95, 70);
-        s.text(
-          this.catalog.karts[this.karts[i]]?.name ||
-            "Kart " + (this.karts[i] + 1),
-          610,
-          y + 30,
-          24,
-        );
-        s.button("›", 775, y, 65, 60, () => {
-          this.karts[i] =
-            (this.karts[i] + 1) % Math.max(1, this.kartImages.length);
-        });
+        this.amulets('race');
+        if (this.mode === 'race') s.button('PAUSE', 671, 12, 117, 48,
+          () => s.pause(), false, 21);
       }
-      s.button(
-        "DRAW ROUTES",
-        260,
-        s.h - 90,
-        480,
-        60,
-        () => {
-          this.mode = "ready";
-        },
-        true,
-      );
+      if (this.mode === 'result') {
+        s.card('RACE FINISHED!',
+          this.results.map((r, i) =>
+            `${i + 1}. Player ${r.i + 1}  ·  ${r.time.toFixed(2)}s${this.cupMode ? '  ·  ' + this.cupScores[r.i] + ' cup pts' : ''}`),
+          [[this.cupMode && this.cupRound < 3 ? 'NEXT TRACK' : 'RACE AGAIN', () => {
+            if (this.cupMode && this.cupRound < 3) {
+              this.cupRound++; this.index = this.cupStart + this.cupRound;
+              this.drawPlayer=0; this.drawLap=0; this.rawLaps=[]; this.routes=[];
+              this.loadTrack(true);
+            } else { this.drawPlayer = 0; this.drawLap = 0; this.rawLaps = [];
+              this.routes = []; this.cupRound = 0; this.cupScores = [0, 0, 0, 0];
+              if (this.cupMode) { this.index = this.cupStart; this.loadTrack(); }
+              else this.mode = 'ready'; }
+          }], ['CHOOSE TRACK', () => { this.mode = 'tracks'; }]]);
+      }
       return;
-    }
-    s.title(
-      this.entry.name || this.geom.name,
-      this.mode === "draw"
-        ? `Player ${this.drawPlayer + 1} · Draw lap ${this.drawLap + 1}/${this.laps} · ${this.drawSeconds ? Math.ceil(this.drawTime) + "s" : "No time limit"}`
-        : this.mode === "race"
-          ? `${this.elapsed.toFixed(1)}s · ${this.laps} lap${this.laps === 1 ? "" : "s"}`
-          : "",
-    );
-    this.mapDraw();
-    if (this.mode === "ready")
-      s.card(
-        "Player " + (this.drawPlayer + 1) + ": draw your route",
-        [
-          "Start at the flag and draw all the way around.",
-          "Lift your finger to pause drawing; tap Done to finish.",
-        ],
-        [["Ready to draw", () => this.beginDraw()]],
-      );
-    if (this.mode === "draw") {
-      s.text(this.warning, 500, s.h - 105, 20, "#f1d9a0");
-      s.button("Clear this lap", 80, s.h - 75, 270, 55, () => this.beginDraw());
-      s.button("DONE", 650, s.h - 75, 270, 55, () => this.sealLap(), true);
-    }
-    if (this.mode === "countdown") {
-      s.text(Math.ceil(this.countdown), 500, s.h / 2, 90, "#ffdc7c");
-      s.text(
-        this.reflex
-          ? "Wait for GO, then tap your coloured player button."
-          : "Get ready!",
-        500,
-        s.h - 30,
-        21,
-      );
-    }
-    if (this.mode === "race")
-      s.text(
-        this.elapsed < 1.5
-          ? "GO!"
-          : this.powerups
-            ? "Tap your player button to use a collected item."
-            : "Follow your line to the finish!",
-        500,
-        s.h - 30,
-        24,
-        "#e7efbf",
-      );
-    if (this.mode === "result") {
-      const last = this.cupMode && this.cupRound === 3,
-        lines = this.results.map(
-          (r, i) =>
-            `${i + 1}. Player ${r.i + 1} · ${r.time.toFixed(2)}s${this.cupMode ? " · " + this.cupScores[r.i] + " cup points" : ""}`,
-        );
-      if (last) {
-        const max = Math.max(...this.cupScores.slice(0, this.players));
-        lines.push(
-          "Cup winner: " +
-            this.cupScores
-              .slice(0, this.players)
-              .map((n, i) => (n === max ? "P" + (i + 1) : null))
-              .filter(Boolean)
-              .join(" & "),
-        );
-      }
-      s.card(last ? "Cup complete!" : "Race complete!", lines, [
-        [
-          this.cupMode && !last ? "Next cup race" : "Race again",
-          () => {
-            if (this.cupMode && !last) {
-              this.cupRound++;
-              this.index = this.cupStart + this.cupRound;
-              this.loadTrack();
-            } else {
-              this.drawPlayer = 0;
-              this.drawLap = 0;
-              this.rawLaps = [];
-              this.routes = [];
-              this.cupRound = 0;
-              this.cupScores = [0, 0, 0, 0];
-              if (this.cupMode) {
-                this.index = this.cupStart;
-                this.loadTrack();
-              } else this.mode = "ready";
-            }
-          },
-        ],
-        [
-          "Game menu",
-          () => {
-            this.mode = "menu";
-          },
-        ],
-      ]);
     }
   }
+
+  drawMainMenu() {
+    const s = this.s;
+    s.menuBackground();
+    s.title('WASTE KART!', 'Draw a racing line. Race it together!');
+    s.panel(40, 98, 720, 91);
+    s.text('PICK YOUR RACE', 400, 113, 23, '#ffd15c');
+    s.button('SINGLE RACE', 76, 134, 311, 45,
+      () => this.cupMode = false, !this.cupMode, 24);
+    s.button('4-TRACK CUP', 413, 134, 311, 45,
+      () => this.cupMode = true, this.cupMode, 24);
+
+    s.panel(40, 197, 720, 87);
+    s.text('HOW MANY RACERS?', 400, 213, 23, '#ffd15c');
+    for (let i = 1; i <= 4; i++)
+      s.button(String(i), 85 + (i - 1) * 158, 233, 144, 43,
+        () => {this.players = i; this.kartPlayer = 0;}, this.players === i, 28);
+
+    s.panel(40, 293, 720, 86);
+    s.text('TIME TO DRAW', 400, 309, 23, '#ffd15c');
+    [15,30,60,0].forEach((sec, i) => s.button(sec ? `${sec} SEC` : 'NO LIMIT',
+      60 + i * 174, 330, 156, 41, () => this.drawSeconds = sec,
+      this.drawSeconds === sec, 21));
+
+    s.panel(40, 389, 347, 85);
+    s.text('HOW MANY LAPS?', 213, 405, 22, '#ffd15c');
+    s.button('1 LAP', 54, 426, 154, 40, () => this.laps = 1, this.laps === 1, 23);
+    s.button('3 LAPS', 219, 426, 154, 40, () => this.laps = 3, this.laps === 3, 23);
+
+    s.panel(399, 389, 361, 85);
+    s.text('REFLEX START?', 579, 405, 22, '#ffd15c');
+    s.button('OFF', 412, 426, 156, 40, () => this.reflex = false, !this.reflex, 23);
+    s.button('ON!', 582, 426, 165, 40, () => this.reflex = true, this.reflex, 23);
+
+    for (const [x, label, key] of [[40, 'ITEMS', 'powerups'], [283, 'LINES', 'showLines'],
+                                  [526, 'BUMP', 'interactions']]) {
+      s.panel(x, 480, x === 526 ? 234 : 233, 54);
+      s.text(label, x + 49, 506, 19, '#ffd15c');
+      s.button('OFF', x + 97, 486, 61, 41, () => this[key] = false, !this[key], 17);
+      s.button('ON', x + 164, 486, 61, 41, () => this[key] = true, this[key], 17);
+    }
+    s.button('CHOOSE CUP  ›', 255, 543, 290, 46,
+      () => {this.mode = 'tracks';}, true, 25);
+  }
+
+  drawTrackPicker() {
+    const s = this.s;
+    s.menuBackground();
+    s.title('PICK A CUP', 'Single race: choose a track. Cup: all four tracks!');
+    const cupNames = ['MEADOW','COAST','DESERT','STAR'];
+    const cup = Math.floor(this.index / 4);
+    for (let c = 0; c < 4; c++) {
+      s.button(cupNames[c], 29 + c * 192, 121, 169, 61,
+        () => {this.index = c * 4;}, cup === c, 24);
+    }
+    for (let j = 0; j < 4; j++) {
+      const idx = cup * 4 + j, entry = this.catalog.tracks[idx];
+      if (!entry) continue;
+      const x = 21 + j * 195, selected = idx === this.index;
+      s.panel(x, 214, 176, 185, selected ? '#426472' : '#2b3851',
+        selected && !this.cupMode ? '#ffd15c' : '#637d97');
+      const image = this.thumb(idx);
+      if (image) s.c.drawImage(image, x + 6, 220, 164, 105);
+      else {
+        s.box(x + 6, 220, 164, 105, '#426475', 5);
+        s.text('LOADING MAP', x + 88, 273, 13, '#e5ece0');
+      }
+      s.outline(x + 5, 219, 166, 107, selected ? '#fff0c2' : '#7892a7', 2, 4);
+      const name = entry.name || `Track ${idx+1}`;
+      // Two-line names stay inside their card at small landscape scales.
+      const pieces = name.length > 15 && name.includes(' ')
+        ? [name.split(' ').slice(0, -1).join(' '), name.split(' ').at(-1)] : [name];
+      pieces.forEach((line, n) => s.text(line, x + 88, 351 + n * 20,
+        name.length > 15 ? 17 : 21));
+      s.text(this.cupMode ? `RACE ${j + 1}` : selected ? 'SELECTED' : 'TAP TO SELECT',
+        x + 88, 385, 15, selected ? '#ffd15c' : '#b6cad4');
+      if (!this.cupMode) s.zones.push({x, y:214, w:176, h:185, fn:()=>this.index=idx});
+    }
+    s.text(this.cupMode ? `CUP ${cup + 1}  ·  ALL 4 TRACKS` :
+      `CUP ${cup + 1}  ·  TRACK ${(this.index % 4) + 1}`, 400, 442, 27);
+    s.button('CHOOSE KARTS  ›', 200, 478, 400, 75, () => {
+      if (this.cupMode) this.index = Math.floor(this.index / 4) * 4;
+      this.cupStart = Math.floor(this.index / 4) * 4;
+      this.cupRound = 0; this.cupScores = [0, 0, 0, 0];
+      this.loadTrack();
+    }, true, 32);
+    s.button('‹  BACK', 26, 540, 156, 47, () => this.mode = 'menu', false, 23);
+  }
+
+  drawKartPicker() {
+    const s = this.s;
+    s.menuBackground();
+    s.title('CHOOSE YOUR KART', 'Your kart color stays in YOUR corner all race!');
+    const color = this.kartColor(this.kartPlayer);
+    s.text(`PLAYER ${this.kartPlayer + 1}`, 400, 129, 45, color);
+    for (let id = 0; id < Math.min(8, this.kartImages.length); id++) {
+      const x = 56 + (id % 4) * 176;
+      const y = 172 + Math.floor(id / 4) * 139;
+      const taken = this.karts.slice(0, this.kartPlayer).includes(id);
+      const selected = this.karts[this.kartPlayer] === id;
+      s.panel(x, y, 158, 121, selected ? '#405573' : '#2a344b',
+        selected ? '#ffd15c' : '#597197');
+      if (selected) s.text('★', x + 143, y + 14, 21, '#ffda78');
+      const im = this.kartImages[id];
+      if (im) {
+        // Plinth and a full-sized kart preview, preserving Python's presentation.
+        s.ellipse(x + 79, y + 87, 58, 9, '#142236');
+        s.c.drawImage(im, x + 21, y + 2 + (selected ? Math.sin(s.time * 4) * 2 : 0), 116, 83);
+      }
+      s.text(this.catalog.karts[id]?.name || `Kart ${id + 1}`, x + 79, y + 104,
+        17, taken ? '#9ca8b8' : '#fff8ef');
+      if (taken) {
+        s.outline(x, y, 158, 121, '#e48990', 3);
+        s.line([{x:x+3,y:y+4},{x:x+155,y:y+117}], '#e48990', 3);
+      } else {
+        s.zones.push({x,y,w:158,h:121, fn:()=>this.pickKart(id)});
+      }
+    }
+    s.text('SAME FOUR CORNERS FOR STARTS AND ITEMS!', 400, 449, 18, '#ffd15c');
+    s.button(this.kartPlayer === this.players - 1 ? 'START DRAWING  ›' : 'NEXT PLAYER  ›',
+      222, 472, 356, 75, () => this.advanceKartSelection(), true, 28);
+    s.button('‹ TRACKS', 26, 540, 149, 47, () => this.mode = 'tracks', false, 22);
+    this.amulets('selection');
+  }
+
+  drawReady() {
+    const s = this.s;
+    s.menuBackground();
+    s.title('YOUR TURN!', this.entry.name || this.geom.name);
+    s.text(`PLAYER ${this.drawPlayer + 1}`, 400, 166, 62, this.kartColor(this.drawPlayer));
+    const im = this.kartImages[this.karts[this.drawPlayer]];
+    if (im) {
+      s.ellipse(400, 350, 123, 20, '#152439');
+      s.c.drawImage(im, 269, 194, 262, 174);
+    }
+    s.text(`Draw ${this.laps} lap${this.laps > 1 ? 's' : ''} – each one is different!`,
+      400, 392, 27);
+    s.text('Start at the green dot. Your finger is the pencil.',
+      400, 430, 21, '#bbced8');
+    s.button('READY TO DRAW!', 220, 473, 360, 79, () => this.beginDraw(), true, 31);
+    this.amulets('preview');
+  }
+
+  startLights() {
+    const s = this.s;
+    s.box(209,181,382,192,'#161c2b',30);
+    s.outline(209,181,382,192,'#ffda8f',5,30);
+    // Count down three large red lights, followed by GO.
+    const shown = Math.min(3, Math.floor(3 - this.countdown) + 1);
+    for (let i = 0; i < 3; i++) {
+      s.circle(285 + i * 115, 272, 42, '#080c18');
+      s.circle(285 + i * 115, 272, 34, i < shown ? '#f04147' : '#4b2a30');
+    }
+    s.text(String(Math.max(1, Math.ceil(this.countdown))), 400, 358, 50, '#ffd15c');
+  }
+
+
 }
 const GAME = { name: "Waste Kart", Game: Kart, assets: {} };
 
@@ -1854,28 +1932,78 @@ class HubScene extends Phaser.Scene{
  constructor(){super('game');this.assets={home:'../assets/retBut.png',homeDown:'../assets/retBut_clicked.png',...GAME.assets};}
  preload(){for(const [k,p] of Object.entries(this.assets))this.load.image(k,p);}
  create(){this.keys={};this.holds=new Map();this.zones=[];this.time=0;this.paused=false;this.input.addPointer(4);this.input.keyboard.on('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(!this.paused&&!this.keys[e.key])this.gameplay?.key?.(e.key);this.keys[e.key]=true;if(e.key==='Escape')this.pause();});this.input.keyboard.on('keyup',e=>{this.keys[e.key]=false;});this.input.on('pointerdown',p=>this.down(p));this.input.on('pointermove',p=>this.move(p));this.input.on('pointerup',p=>this.up(p));this.input.on('pointerupoutside',p=>this.up(p));this.scale.on('resize',()=>this.resize());this.game.events.on('blur',()=>this.pause(true));document.addEventListener('visibilitychange',()=>{if(document.hidden)this.pause(true);});this.resize();this.gameplay=new GAME.Game(this);}
- resize(){this.w=1000;this.h=750;if(this.picture)this.picture.destroy();if(this.textures.exists('screen'))this.textures.remove('screen');this.tex=this.textures.createCanvas('screen',this.w,Math.round(this.h));this.c=this.tex.context;this.picture=this.add.image(0,0,'screen').setOrigin(0).setDisplaySize(this.scale.width,this.scale.height);this.cancel();this.gameplay?.resize?.();}
+ resize(){this.w=800;this.h=600;if(this.picture)this.picture.destroy();if(this.textures.exists('screen'))this.textures.remove('screen');this.tex=this.textures.createCanvas('screen',this.w,Math.round(this.h));this.c=this.tex.context;this.picture=this.add.image(0,0,'screen').setOrigin(0).setDisplaySize(this.scale.width,this.scale.height);this.cancel();this.gameplay?.resize?.();}
  cancel(){this.holds.clear();this.keys={};this.gameplay?.cancel?.();}
  pause(force=false){if(!this.gameplay)return;this.paused=force||!this.paused;this.cancel();}
  pt(p){return{x:p.x*this.w/this.scale.width,y:p.y*this.h/this.scale.height,id:p.id};}
- down(p){const q=this.pt(p);for(const z of [...this.zones].reverse()){if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h){this.holds.set(q.id,{zone:z});if(typeof z.fn==='function')z.fn(q);else this.gameplay?.control?.(z.fn,true,q);return;}}if(!this.paused){this.holds.set(q.id,{world:true});this.gameplay?.down?.(q);}}
+ down(p){const q=this.pt(p);for(const z of [...this.zones].reverse()){if(q.x>=z.x&&q.x<=z.x+z.w&&q.y>=z.y&&q.y<=z.y+z.h&&(!z.circle||Math.hypot(q.x-z.circle.x,q.y-z.circle.y)<=z.circle.r)){this.holds.set(q.id,{zone:z});if(typeof z.fn==='function')z.fn(q);else this.gameplay?.control?.(z.fn,true,q);return;}}if(!this.paused){this.holds.set(q.id,{world:true});this.gameplay?.down?.(q);}}
  move(p){const q=this.pt(p),hold=this.holds.get(q.id);if(!hold)return;if(hold.world&&!this.paused)this.gameplay?.move?.(q);else hold.zone?.drag?.(q);}
  up(p){const q=this.pt(p),hold=this.holds.get(q.id);this.holds.delete(q.id);if(!hold)return;if(hold.world)this.gameplay?.up?.(q);else if(typeof hold.zone.fn==='string')this.gameplay?.control?.(hold.zone.fn,false,q);hold.zone?.up?.(q);}
  held(name){return [...this.holds.values()].some(h=>h.zone?.fn===name);}
- update(_,ms){const dt=Math.min(ms/1000,.05);this.time+=dt;if(!this.paused)this.gameplay?.update?.(dt);this.zones=[];this.c.fillStyle=GAME.bg||'#152e3d';this.c.fillRect(0,0,this.w,this.h);this.gameplay?.draw?.();if(this.paused){this.zones=[];this.veil();this.text('PAUSED',500,this.h/2-55,40);this.button('Resume',350,this.h/2,300,64,()=>this.pause(),true);}const home=this.button('',12,12,54,54,()=>{});home.tag='home';home.up=q=>{if(q.x>=12&&q.x<=66&&q.y>=12&&q.y<=66){this.gameplay?.persist?.();location.href='../index.html';}};const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',12,12,54,54))this.text('⌂',39,38,34);if(!this.paused)this.button('Ⅱ',934,12,54,54,()=>this.pause());this.tex.refresh();}
+ update(_,ms){
+  const dt=Math.min(ms/1000,.05);this.time+=dt;
+  if(!this.paused)this.gameplay?.update?.(dt);
+  this.zones=[];this.c.fillStyle=GAME.bg||'#152e3d';this.c.fillRect(0,0,this.w,this.h);
+  this.gameplay?.draw?.();
+  if(this.paused){
+   this.zones=[];this.veil();this.text('PAUSED',400,this.h/2-55,45,'#ffd15c');
+   this.button('RESUME',250,this.h/2,300,64,()=>this.pause(),true,28);
+  }
+  // The Home button lives IN the 73px HUD, never over the track or letterbox.
+  const home=this.button('',9,11,62,49,()=>{});
+  home.tag='home';home.up=q=>{
+   if(q.x>=9&&q.x<=71&&q.y>=11&&q.y<=60){
+    this.gameplay?.persist?.();location.href='../index.html';
+   }
+  };
+  const homePressed=[...this.holds.values()].some(h=>h.zone?.tag==='home');
+  if(!this.image(homePressed&&this.textures.exists('homeDown')?'homeDown':'home',13,12,51,47))
+   this.text('⌂',40,36,35);
+  this.tex.refresh();
+ }
+
  text(t,x,y,size=20,color='#f3f8ee',align='center'){this.c.font=`600 ${size}px system-ui,sans-serif`;this.c.fillStyle=color;this.c.textAlign=align;this.c.textBaseline='middle';this.c.fillText(String(t),x,y);}
  box(x,y,w,h,color='#244c59',radius=14){const c=this.c;c.fillStyle=color;c.beginPath();c.roundRect(x,y,Math.max(0,w),Math.max(0,h),radius);c.fill();}
  circle(x,y,r,color){this.c.fillStyle=color;this.c.beginPath();this.c.arc(x,y,Math.max(.1,r),0,TAU);this.c.fill();}
  line(points,color,width=3){if(points.length<2)return;const c=this.c;c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.beginPath();c.moveTo(points[0].x,points[0].y);for(const p of points.slice(1))c.lineTo(p.x,p.y);c.stroke();}
  image(key,x,y,w,h,angle=0,flip=false){if(!this.textures.exists(key))return false;const c=this.c;c.save();c.translate(x+w/2,y+h/2);c.rotate(angle);c.scale(flip?-1:1,1);c.drawImage(this.textures.get(key).getSourceImage(),-w/2,-h/2,w,h);c.restore();return true;}
- button(label,x,y,w,h,fn,primary=false){this.box(x,y,w,h,primary?'#c4eaa4':'#244c59');this.text(label,x+w/2,y+h/2,Math.min(21,w/9),primary?'#254638':'#f4f8ee');const z={x,y,w,h,fn};this.zones.push(z);return z;}
- title(name,sub=''){this.text(name,500,34,28);if(sub)this.text(sub,500,66,16,'#c6d6d5');}
- veil(){this.c.fillStyle='#102634e8';this.c.fillRect(0,0,1000,this.h);}
- card(title,lines,buttons){this.zones=[];this.veil();const y=Math.max(110,this.h/2-140);this.text(title,500,y,38,'#d3efb3');lines.forEach((l,i)=>this.text(l,500,y+58+i*32,20));buttons.forEach((b,i)=>this.button(b[0],300,y+90+lines.length*32+i*70,400,56,b[1],i===0));}
- field(ratio=4/3,bottom=90){const maxW=964,maxH=this.h-100-bottom;const w=Math.min(maxW,maxH*ratio),h=w/ratio;return{x:(1000-w)/2,y:90+(maxH-h)/2,w,h};}
+ button(label,x,y,w,h,fn,selected=false,size=24){
+  this.box(x,y+3,w,h,'#0c1726',11);
+  this.box(x,y,w,h,selected?'#47927c':'#3a4f6f',11);
+  this.outline(x,y,w,h,selected?'#ffe290':'#9bb2d2',2.5,11);
+  this.text(label,x+w/2,y+h/2,Math.min(size,w/Math.max(2.9,String(label).length*.52)),
+    '#fff9ef');
+  const z={x,y,w,h,fn};this.zones.push(z);return z;
+ }
+ outline(x,y,w,h,color='#97a9c4',width=2,radius=12){
+  this.c.strokeStyle=color;this.c.lineWidth=width;
+  this.c.beginPath();this.c.roundRect(x,y,w,h,radius);this.c.stroke();
+ }
+ panel(x,y,w,h,bg='#212d49',border='#6785ae'){
+  this.box(x,y,w,h,bg,18);this.outline(x,y,w,h,border,2,18);
+ }
+ ellipse(x,y,rx,ry,color){
+  this.c.fillStyle=color;this.c.beginPath();this.c.ellipse(x,y,rx,ry,0,0,TAU);this.c.fill();
+ }
+ menuBackground(){
+  this.c.fillStyle='#19233d';this.c.fillRect(0,0,this.w,this.h);
+  for(let y=0;y<this.h;y+=30){this.c.fillStyle=(y/30)%2===0?'#1c2845':'#1b2541';this.c.fillRect(0,y,this.w,30);}
+  for(let i=0;i<15;i++){
+   this.c.strokeStyle='#354668';this.c.lineWidth=2;this.c.beginPath();
+   this.c.arc((i*137+42)%this.w,(i*89+19)%this.h,4+i%3,0,TAU);this.c.stroke();
+  }
+ }
+ title(name,sub=''){this.text(name,400,43,sub ? 44 : 49,'#ffd15c');
+ if(sub)this.text(sub,400,92,22,'#bbcad9');}
+ veil(){this.c.fillStyle='#102634e8';this.c.fillRect(0,0,800,this.h);}
+ card(title,lines,buttons){this.zones=[];this.veil();const y=Math.max(105,this.h/2-130);
+ this.text(title,400,y,36,'#ffe18b');
+ lines.forEach((l,i)=>this.text(l,400,y+56+i*32,18));
+ buttons.forEach((b,i)=>this.button(b[0],235,y+85+lines.length*32+i*66,330,54,b[1],i===0,20));}
+ field(){return{x:30,y:79,w:740,h:462};}
 }
 globalThis.GameHubScene=HubScene;
-new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3d',scale:{mode:Phaser.Scale.FIT,width:1000,height:750,autoCenter:Phaser.Scale.CENTER_BOTH},input:{activePointers:5},scene:HubScene});
+new Phaser.Game({type:Phaser.AUTO,parent:'game',backgroundColor:GAME.bg||'#152e3d',scale:{mode:Phaser.Scale.FIT,width:800,height:600,autoCenter:Phaser.Scale.CENTER_BOTH},input:{activePointers:5},scene:HubScene});
 
 }
 
