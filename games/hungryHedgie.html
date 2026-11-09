@@ -494,6 +494,8 @@ class HungryHedgie {
  }
  drawDecorator(){
   const choices=this.decoratableItems(),c=this.c;
+  // Always-visible close control above the room: accessible even without items.
+  this.homeAction('✕',679,108,53,40,()=>this.closeDecorator());
   if(!choices.length){
    this.panel(229,236,342,99,17,'#fff0bf');this.text('Collect your first basket',400,267,22,C.green,750);
    this.text('to earn a lovely bed!',400,301,19,C.ink);
@@ -509,11 +511,14 @@ class HungryHedgie {
    else this.homeSprite(key,pt.x,pt.y,spot.w,spot.h)||this.drawFurnitureFallback(key,pt.x,pt.y,spot.w,spot.h);
   }
   c.restore();
-  this.panel(188,75,424,63,19,'#fff0bc');this.text('MAKE IT YOUR OWN!',400,92,26,C.green,800);
-  this.text('Tap or drag furniture to a new spot',400,119,17,C.ink,700);
+  // The heading remains within the home's top frame, not behind the clip.
+  this.panel(190,108,420,40,13,'#fff0bc');
+  this.text('ARRANGE YOUR HOME',400,128,22,C.green,800);
+  this.text('Drag furniture to move it',400,445,16,C.green,700);
   this.homeAction('◀',91,460,51,43,()=>{const k=choices.indexOf(index);this.selectedFurniture=choices[(k+choices.length-1)%choices.length];});
   this.panel(151,460,270,43,14,'#fff2c8');this.text(PROJECTS[index].short,286,481,17,C.green,750,252);
   this.homeAction('▶',430,460,51,43,()=>{const k=choices.indexOf(index);this.selectedFurniture=choices[(k+1)%choices.length];});
+  // This footer sits BELOW the clipped room, and is drawn after c.restore().
   this.homeAction('DONE ✓',518,460,196,43,()=>this.closeDecorator());
  }
  drawHomeInterior(){
@@ -537,8 +542,10 @@ class HungryHedgie {
   const reveal=this.mode==='homeReveal',finale=this.mode==='finale',decorate=this.mode==='decorate';
   const pending=reveal&&this.pendingPlacement!==null;
   if(pending)this.drawPlacementTarget();
-  if(decorate)this.drawDecorator();
+  // Keep the room art clipped, but NOT the Arrange-mode header or buttons.
+  // v3.4 drew Done at y=460 inside a clipping region ending at y=453.
   c.restore();
+  if(decorate)this.drawDecorator();
   const full=this.completed||this.delivered>=STAGES[this.stage].goal;
   const title=decorate?'Make your home cosy!':finale?'A Home for Four!':reveal?(pending?('PLACE THE '+PLACE_LABELS[this.stage][this.pendingPlacement-1]+'!'):(full?PROJECTS[this.stage].done:PROJECTS[this.stage].first)):'Our Little Home';
   if(reveal){
@@ -725,7 +732,7 @@ class HedgieScene extends Phaser.Scene{
   this.input.on('pointerup',p=>this.hedgie.handleUp(q(p)));
   this.input.on('pointerupoutside',p=>this.hedgie.handleUp(q(p)));
   this.input.keyboard.on('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key))e.preventDefault();this.keys[e.key]=true;
-   if(e.key==='Escape'){if(this.hedgie.mode==='play'){this.hedgie.mode='pause';this.hedgie.cancel();}else if(this.hedgie.mode==='pause'||this.hedgie.mode==='homeVisit')this.hedgie.leaveHome();}
+   if(e.key==='Escape'){if(this.hedgie.mode==='decorate')this.hedgie.closeDecorator();else if(this.hedgie.mode==='play'){this.hedgie.mode='pause';this.hedgie.cancel();}else if(this.hedgie.mode==='pause'||this.hedgie.mode==='homeVisit')this.hedgie.leaveHome();}
   });
   this.input.keyboard.on('keyup',e=>{this.keys[e.key]=false;});
   window.addEventListener('pagehide',()=>this.hedgie.persist());
